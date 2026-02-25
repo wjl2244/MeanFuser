@@ -3,12 +3,7 @@
 <h1>[🎉CVPR 2026] MeanFuser</h1>
 <h4>Fast One-Step Multi-Modal Trajectory Generation and Adaptive Reconstruction via MeanFlow for End-to-End Autonomous Driving</h4>
 
-<!-- <p align="center">
-<a href="https://arxiv.org/abs/2602.20060"><img src="https://img.shields.io/badge/arXiv-Dual_AEB-green"></a>
-<a href="https://github.com/wjl2244/MeanFuser/blob/main/LICENSE"><img  src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-</p> -->
-
-[![Paper](https://img.shields.io/badge/ArXiv-A42C25?style=for-the-badge&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2511.23369)
+[![Paper](https://img.shields.io/badge/ArXiv-A42C25?style=for-the-badge&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2602.20060)
 [![License](https://img.shields.io/badge/Apache--2.0-019B8F?style=for-the-badge&logo=apache)](https://github.com/wjl2244/MeanFuser/blob/main/LICENSE) 
 
 <h4 align="center"><em><a href="https://github.com/wjl2244">Junli Wang</a>, 
