@@ -36,7 +36,7 @@
 ## 📋 TODO List
 - [ ] Checkpoints release (Mar. 2026).
 - [ ] Code release (Mar. 2026).
-- [ ] Paper release (Feb. 2026).
+- [x] Paper release (Feb. 2026).
 
 
 
