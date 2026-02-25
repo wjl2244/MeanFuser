@@ -30,6 +30,7 @@
 ---
 
 ## 📢 News
+- **`[2025/2/25]`** We released our [paper](https://arxiv.org/abs/2602.20060) on arXiv. 
 - **`[2025/2/21]`** 🎉 Accepted to CVPR 2026.
 
 
