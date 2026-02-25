@@ -4,7 +4,7 @@
 <h4>Fast One-Step Multi-Modal Trajectory Generation and Adaptive Reconstruction via MeanFlow for End-to-End Autonomous Driving</h4>
 
 <!-- <p align="center">
-<a href="https://arxiv.org/pdf/2410.08616"><img src="https://img.shields.io/badge/arXiv-Dual_AEB-green"></a>
+<a href="https://arxiv.org/abs/2602.20060"><img src="https://img.shields.io/badge/arXiv-Dual_AEB-green"></a>
 <a href="https://github.com/wjl2244/MeanFuser/blob/main/LICENSE"><img  src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p> -->
 
