@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://ik.imagekit.io/b4ajawimo/MeanFuser/meanfuser.png" width="800">
+<img src="https://ik.imagekit.io/b4ajawimo/MeanFuser/meanfuser.png?updatedAt=1772107185555" width="800">
 <h1>[🎉CVPR 2026] MeanFuser</h1>
 <h4>Fast One-Step Multi-Modal Trajectory Generation and Adaptive Reconstruction via MeanFlow for End-to-End Autonomous Driving</h4>
 
