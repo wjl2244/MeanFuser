@@ -1,135 +1,196 @@
 from typing import Dict
 
+import numpy as np
 import torch
-import torch.nn.functional as F
-from scipy.optimize import linear_sum_assignment
+import torch.nn as nn
+from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
 
+from navsim.agents.transfuser.transfuser_backbone import TransfuserBackbone
 from navsim.agents.transfuser.transfuser_config import TransfuserConfig
 from navsim.agents.transfuser.transfuser_features import BoundingBox2DIndex
+from navsim.common.enums import StateSE2Index
 
 
-def transfuser_loss(targets: Dict[str, torch.Tensor], predictions: Dict[str, torch.Tensor], config: TransfuserConfig):
-    """
-    Helper function calculating complete loss of Transfuser
-    :param targets: dictionary of name tensor pairings
-    :param predictions: dictionary of name tensor pairings
-    :param config: global Transfuser config
-    :return: combined loss value
-    """
+class TransfuserModel(nn.Module):
+    """Torch module for Transfuser."""
 
-    trajectory_loss = F.l1_loss(predictions["trajectory"], targets["trajectory"])
-    agent_class_loss, agent_box_loss = _agent_loss(targets, predictions, config)
-    bev_semantic_loss = F.cross_entropy(predictions["bev_semantic_map"], targets["bev_semantic_map"].long())
-    loss = (
-        config.trajectory_weight * trajectory_loss
-        + config.agent_class_weight * agent_class_loss
-        + config.agent_box_weight * agent_box_loss
-        + config.bev_semantic_weight * bev_semantic_loss
-    )
-    return loss
+    def __init__(self, trajectory_sampling: TrajectorySampling, config: TransfuserConfig):
+        """
+        Initializes TransFuser torch module.
+        :param trajectory_sampling: trajectory sampling specification.
+        :param config: global config dataclass of TransFuser.
+        """
 
+        super().__init__()
 
-def _agent_loss(targets: Dict[str, torch.Tensor], predictions: Dict[str, torch.Tensor], config: TransfuserConfig):
-    """
-    Hungarian matching loss for agent detection
-    :param targets: dictionary of name tensor pairings
-    :param predictions: dictionary of name tensor pairings
-    :param config: global Transfuser config
-    :return: detection loss
-    """
+        self._query_splits = [
+            1,
+            config.num_bounding_boxes,
+        ]
 
-    gt_states, gt_valid = targets["agent_states"], targets["agent_labels"]
-    pred_states, pred_logits = predictions["agent_states"], predictions["agent_labels"]
+        self._config = config
+        self._backbone = TransfuserBackbone(config)
 
-    if config.latent:
-        rad_to_ego = torch.arctan2(
-            gt_states[..., BoundingBox2DIndex.Y],
-            gt_states[..., BoundingBox2DIndex.X],
+        self._keyval_embedding = nn.Embedding(8**2 + 1, config.tf_d_model)  # 8x8 feature grid + trajectory
+        self._query_embedding = nn.Embedding(sum(self._query_splits), config.tf_d_model)
+
+        # usually, the BEV features are variable in size.
+        self._bev_downscale = nn.Conv2d(512, config.tf_d_model, kernel_size=1)
+        self._status_encoding = nn.Linear(4 + 2 + 2, config.tf_d_model)
+
+        self._bev_semantic_head = nn.Sequential(
+            nn.Conv2d(
+                config.bev_features_channels,
+                config.bev_features_channels,
+                kernel_size=(3, 3),
+                stride=1,
+                padding=(1, 1),
+                bias=True,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(
+                config.bev_features_channels,
+                config.num_bev_classes,
+                kernel_size=(1, 1),
+                stride=1,
+                padding=0,
+                bias=True,
+            ),
+            nn.Upsample(
+                size=(
+                    config.lidar_resolution_height // 2,
+                    config.lidar_resolution_width,
+                ),
+                mode="bilinear",
+                align_corners=False,
+            ),
         )
 
-        in_latent_rad_thresh = torch.logical_and(
-            -config.latent_rad_thresh <= rad_to_ego,
-            rad_to_ego <= config.latent_rad_thresh,
+        tf_decoder_layer = nn.TransformerDecoderLayer(
+            d_model=config.tf_d_model,
+            nhead=config.tf_num_head,
+            dim_feedforward=config.tf_d_ffn,
+            dropout=config.tf_dropout,
+            batch_first=True,
         )
-        gt_valid = torch.logical_and(in_latent_rad_thresh, gt_valid)
 
-    # save constants
-    batch_dim, num_instances = pred_states.shape[:2]
-    num_gt_instances = gt_valid.sum()
-    num_gt_instances = num_gt_instances if num_gt_instances > 0 else num_gt_instances + 1
+        self._tf_decoder = nn.TransformerDecoder(tf_decoder_layer, config.tf_num_layers)
+        self._agent_head = AgentHead(
+            num_agents=config.num_bounding_boxes,
+            d_ffn=config.tf_d_ffn,
+            d_model=config.tf_d_model,
+        )
 
-    ce_cost = _get_ce_cost(gt_valid, pred_logits)
-    l1_cost = _get_l1_cost(gt_states, pred_states, gt_valid)
+        self._trajectory_head = TrajectoryHead(
+            num_poses=trajectory_sampling.num_poses,
+            d_ffn=config.tf_d_ffn,
+            d_model=config.tf_d_model,
+        )
 
-    cost = config.agent_class_weight * ce_cost + config.agent_box_weight * l1_cost
-    cost = cost.cpu()
+    def forward(self, features: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Torch module forward pass."""
 
-    indices = [linear_sum_assignment(c) for i, c in enumerate(cost)]
-    matching = [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
-    idx = _get_src_permutation_idx(matching)
+        camera_feature: torch.Tensor = features["camera_feature"]
+        if self._config.latent:
+            lidar_feature = None
+        else:
+            lidar_feature: torch.Tensor = features["lidar_feature"]
+        status_feature: torch.Tensor = features["status_feature"]
 
-    pred_states_idx = pred_states[idx]
-    gt_states_idx = torch.cat([t[i] for t, (_, i) in zip(gt_states, indices)], dim=0)
+        batch_size = status_feature.shape[0]
 
-    pred_valid_idx = pred_logits[idx]
-    gt_valid_idx = torch.cat([t[i] for t, (_, i) in zip(gt_valid, indices)], dim=0).float()
+        bev_feature_upscale, bev_feature, _ = self._backbone(camera_feature, lidar_feature)
 
-    l1_loss = F.l1_loss(pred_states_idx, gt_states_idx, reduction="none")
-    l1_loss = l1_loss.sum(-1) * gt_valid_idx
-    l1_loss = l1_loss.view(batch_dim, -1).sum() / num_gt_instances
+        bev_feature = self._bev_downscale(bev_feature).flatten(-2, -1)
+        bev_feature = bev_feature.permute(0, 2, 1)
+        status_encoding = self._status_encoding(status_feature)
 
-    ce_loss = F.binary_cross_entropy_with_logits(pred_valid_idx, gt_valid_idx, reduction="none")
-    ce_loss = ce_loss.view(batch_dim, -1).mean()
+        keyval = torch.concatenate([bev_feature, status_encoding[:, None]], dim=1)
+        keyval += self._keyval_embedding.weight[None, ...]
 
-    return ce_loss, l1_loss
+        query = self._query_embedding.weight[None, ...].repeat(batch_size, 1, 1)
+        query_out = self._tf_decoder(query, keyval)
 
+        bev_semantic_map = self._bev_semantic_head(bev_feature_upscale)
+        trajectory_query, agents_query = query_out.split(self._query_splits, dim=1)
 
-@torch.no_grad()
-def _get_ce_cost(gt_valid: torch.Tensor, pred_logits: torch.Tensor) -> torch.Tensor:
-    """
-    Function to calculate cross-entropy cost for cost matrix.
-    :param gt_valid: tensor of binary ground-truth labels
-    :param pred_logits: tensor of predicted logits of neural net
-    :return: bce cost matrix as tensor
-    """
+        output: Dict[str, torch.Tensor] = {"bev_semantic_map": bev_semantic_map}
+        trajectory = self._trajectory_head(trajectory_query)
+        output.update(trajectory)
 
-    # NOTE: numerically stable BCE with logits
-    # https://github.com/pytorch/pytorch/blob/c64e006fc399d528bb812ae589789d0365f3daf4/aten/src/ATen/native/Loss.cpp#L214
-    gt_valid_expanded = gt_valid[:, :, None].detach().float()  # (b, n, 1)
-    pred_logits_expanded = pred_logits[:, None, :].detach()  # (b, 1, n)
+        agents = self._agent_head(agents_query)
+        output.update(agents)
 
-    max_val = torch.relu(-pred_logits_expanded)
-    helper_term = max_val + torch.log(torch.exp(-max_val) + torch.exp(-pred_logits_expanded - max_val))
-    ce_cost = (1 - gt_valid_expanded) * pred_logits_expanded + helper_term  # (b, n, n)
-    ce_cost = ce_cost.permute(0, 2, 1)
-
-    return ce_cost
+        return output
 
 
-@torch.no_grad()
-def _get_l1_cost(gt_states: torch.Tensor, pred_states: torch.Tensor, gt_valid: torch.Tensor) -> torch.Tensor:
-    """
-    Function to calculate L1 cost for cost matrix.
-    :param gt_states: tensor of ground-truth bounding boxes
-    :param pred_states: tensor of predicted bounding boxes
-    :param gt_valid: mask of binary ground-truth labels
-    :return: l1 cost matrix as tensor
-    """
+class AgentHead(nn.Module):
+    """Bounding box prediction head."""
 
-    gt_states_expanded = gt_states[:, :, None, :2].detach()  # (b, n, 1, 2)
-    pred_states_expanded = pred_states[:, None, :, :2].detach()  # (b, 1, n, 2)
-    l1_cost = gt_valid[..., None].float() * (gt_states_expanded - pred_states_expanded).abs().sum(dim=-1)
-    l1_cost = l1_cost.permute(0, 2, 1)
-    return l1_cost
+    def __init__(
+        self,
+        num_agents: int,
+        d_ffn: int,
+        d_model: int,
+    ):
+        """
+        Initializes prediction head.
+        :param num_agents: maximum number of agents to predict
+        :param d_ffn: dimensionality of feed-forward network
+        :param d_model: input dimensionality
+        """
+        super(AgentHead, self).__init__()
+
+        self._num_objects = num_agents
+        self._d_model = d_model
+        self._d_ffn = d_ffn
+
+        self._mlp_states = nn.Sequential(
+            nn.Linear(self._d_model, self._d_ffn),
+            nn.ReLU(),
+            nn.Linear(self._d_ffn, BoundingBox2DIndex.size()),
+        )
+
+        self._mlp_label = nn.Sequential(
+            nn.Linear(self._d_model, 1),
+        )
+
+    def forward(self, agent_queries) -> Dict[str, torch.Tensor]:
+        """Torch module forward pass."""
+
+        agent_states = self._mlp_states(agent_queries)
+        agent_states[..., BoundingBox2DIndex.POINT] = agent_states[..., BoundingBox2DIndex.POINT].tanh() * 32
+        agent_states[..., BoundingBox2DIndex.HEADING] = agent_states[..., BoundingBox2DIndex.HEADING].tanh() * np.pi
+
+        agent_labels = self._mlp_label(agent_queries).squeeze(dim=-1)
+
+        return {"agent_states": agent_states, "agent_labels": agent_labels}
 
 
-def _get_src_permutation_idx(indices):
-    """
-    Helper function to align indices after matching
-    :param indices: matched indices
-    :return: permuted indices
-    """
-    # permute predictions following indices
-    batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
-    src_idx = torch.cat([src for (src, _) in indices])
-    return batch_idx, src_idx
+class TrajectoryHead(nn.Module):
+    """Trajectory prediction head."""
+
+    def __init__(self, num_poses: int, d_ffn: int, d_model: int):
+        """
+        Initializes trajectory head.
+        :param num_poses: number of (x,y,θ) poses to predict
+        :param d_ffn: dimensionality of feed-forward network
+        :param d_model: input dimensionality
+        """
+        super(TrajectoryHead, self).__init__()
+
+        self._num_poses = num_poses
+        self._d_model = d_model
+        self._d_ffn = d_ffn
+
+        self._mlp = nn.Sequential(
+            nn.Linear(self._d_model, self._d_ffn),
+            nn.ReLU(),
+            nn.Linear(self._d_ffn, num_poses * StateSE2Index.size()),
+        )
+
+    def forward(self, object_queries) -> Dict[str, torch.Tensor]:
+        """Torch module forward pass."""
+        poses = self._mlp(object_queries).reshape(-1, self._num_poses, StateSE2Index.size())
+        poses[..., StateSE2Index.HEADING] = poses[..., StateSE2Index.HEADING].tanh() * np.pi
+        return {"trajectory": poses}

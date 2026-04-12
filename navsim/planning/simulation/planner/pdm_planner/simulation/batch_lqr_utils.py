@@ -4,7 +4,7 @@ import numpy as np
 import numpy.typing as npt
 
 from navsim.planning.simulation.planner.pdm_planner.utils.pdm_geometry_utils import normalize_angle
-import torch
+
 # Util functions for BatchLQRTracker
 # Code re-written based on nuPlan's implementation:
 # https://github.com/motional/nuplan-devkit
@@ -121,7 +121,7 @@ def _fit_initial_velocity_and_acceleration_profile(
 
     # Compute regularized least squares solution.
     intermediate_solution = batch_matmul(
-        torch.linalg.pinv(torch.tensor(batch_matmul(A_T, A) + jerk_penalty * batch_matmul(R_T, R))).numpy(), A_T
+        np.linalg.pinv(batch_matmul(A_T, A) + jerk_penalty * batch_matmul(R_T, R)), A_T
     )
     x = np.einsum("bij, bj -> bi", intermediate_solution, y)
 
@@ -176,7 +176,7 @@ def _fit_initial_curvature_and_curvature_rate_profile(
     # Compute regularized least squares solution.
     A_T = A.transpose(0, 2, 1)
 
-    intermediate = batch_matmul(torch.linalg.pinv(torch.tensor(batch_matmul(A_T, A) + Q)).numpy(), A_T)
+    intermediate = batch_matmul(np.linalg.pinv(batch_matmul(A_T, A) + Q), A_T)
     x = np.einsum("bij,bj->bi", intermediate, y)
 
     # Extract profile from solution.
@@ -191,12 +191,7 @@ def get_velocity_curvature_profiles_with_derivatives_from_poses(
     poses: npt.NDArray[np.float64],
     jerk_penalty: float,
     curvature_rate_penalty: float,
-) -> Tuple[
-    npt.NDArray[np.float64],
-    npt.NDArray[np.float64],
-    npt.NDArray[np.float64],
-    npt.NDArray[np.float64],
-]:
+) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64],]:
     """
     Main function for joint estimation of velocity, acceleration, curvature, and curvature rate given N poses
     sampled at discretization_time.  This is done by solving two least squares problems with the given penalty weights.
@@ -208,10 +203,7 @@ def get_velocity_curvature_profiles_with_derivatives_from_poses(
     """
     xy_displacements, heading_displacements = _get_xy_heading_displacements_from_poses(poses)
 
-    (
-        initial_velocity,
-        acceleration_profile,
-    ) = _fit_initial_velocity_and_acceleration_profile(
+    (initial_velocity, acceleration_profile,) = _fit_initial_velocity_and_acceleration_profile(
         xy_displacements=xy_displacements,
         heading_profile=poses[:, :-1, 2],
         discretization_time=discretization_time,
@@ -225,10 +217,7 @@ def get_velocity_curvature_profiles_with_derivatives_from_poses(
     )
 
     # Compute initial curvature + curvature rate least squares solution and extract results.  It relies on velocity fit.
-    (
-        initial_curvature,
-        curvature_rate_profile,
-    ) = _fit_initial_curvature_and_curvature_rate_profile(
+    (initial_curvature, curvature_rate_profile,) = _fit_initial_curvature_and_curvature_rate_profile(
         heading_displacements=heading_displacements,
         velocity_profile=velocity_profile,
         discretization_time=discretization_time,

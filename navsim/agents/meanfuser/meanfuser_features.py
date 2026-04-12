@@ -35,22 +35,18 @@ class MFFeatureBuilder(AbstractFeatureBuilder):
     def compute_features(self, agent_input: AgentInput) -> Dict[str, torch.Tensor]:
         """Inherited, see superclass."""
         features = {}
-        features["lidar_feature"] = self._get_lidar_feature(agent_input)
+
         features["camera_feature"] = self._get_camera_feature(agent_input)
+        if not self._config.latent:
+            features["lidar_feature"] = self._get_lidar_feature(agent_input)
+        features["status_feature"] = torch.concatenate(
+            [
+                torch.tensor(agent_input.ego_statuses[-1].driving_command, dtype=torch.float32),
+                torch.tensor(agent_input.ego_statuses[-1].ego_velocity, dtype=torch.float32),
+                torch.tensor(agent_input.ego_statuses[-1].ego_acceleration, dtype=torch.float32),
+            ],
+        )
 
-        ego_status_list = []
-        for i in range(self._config.num_ego_status):
-            idx = -(i + 1)
-            ego_status = torch.concatenate(
-                [
-                    torch.tensor(agent_input.ego_statuses[idx].driving_command, dtype=torch.float32),
-                    torch.tensor(agent_input.ego_statuses[idx].ego_velocity, dtype=torch.float32),
-                    torch.tensor(agent_input.ego_statuses[idx].ego_acceleration, dtype=torch.float32)
-                ],
-            )
-            ego_status_list.append(ego_status)
-
-        features["status_feature"] = ego_status_list
         return features
 
     def _get_camera_feature(self, agent_input: AgentInput) -> torch.Tensor:

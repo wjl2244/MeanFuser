@@ -21,7 +21,7 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler, LRScheduler, OneCycleLR
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-
+from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.agents.meanfuser.meanfuser_features import MFFeatureBuilder, MFTargetBuilder
 from navsim.common.dataclasses import SensorConfig
@@ -40,9 +40,10 @@ class MeanfuserAgent(AbstractAgent):
             lr: float,
             max_epochs: int = 150,
             checkpoint_path: str = None,
+            trajectory_sampling: TrajectorySampling = TrajectorySampling(time_horizon=4, interval_length=0.5),
             **kwargs,
     ):
-        super().__init__()
+        super().__init__(trajectory_sampling)
         self._config = config
         self._lr = lr
         self._checkpoint_path = checkpoint_path
@@ -79,8 +80,8 @@ class MeanfuserAgent(AbstractAgent):
     def get_feature_builders(self) -> List[AbstractFeatureBuilder]:
         return [MFFeatureBuilder(config=self._config)]
 
-    def forward(self, features: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor]=None) -> Dict[str, torch.Tensor]:
-        return self.meanfuser_model(features, targets)
+    def forward(self, features: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        return self.meanfuser_model(features)
 
     def compute_loss(
             self,

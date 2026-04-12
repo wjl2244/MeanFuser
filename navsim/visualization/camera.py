@@ -1,17 +1,17 @@
 from typing import List, Optional, Tuple
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 from PIL import ImageColor
-import matplotlib.pyplot as plt
 from pyquaternion import Quaternion
 
-from navsim.common.dataclasses import Camera, Lidar, Annotations
-from navsim.common.enums import LidarIndex, BoundingBoxIndex
+from navsim.common.dataclasses import Annotations, Camera, Lidar
+from navsim.common.enums import BoundingBoxIndex, LidarIndex
+from navsim.planning.scenario_builder.navsim_scenario_utils import tracked_object_types
 from navsim.visualization.config import AGENT_CONFIG
 from navsim.visualization.lidar import filter_lidar_pc, get_lidar_pc_color
-from navsim.planning.scenario_builder.navsim_scenario_utils import tracked_object_types
 
 
 def add_camera_ax(ax: plt.Axes, camera: Camera) -> plt.Axes:
@@ -283,8 +283,7 @@ def _transform_pcs_to_images(
     :param eps: threshold for lidar pc height, defaults to 1e-3
     :return: lidar pc in pixel coordinates, mask of values in frame
     """
-    # pc_xyz = lidar_pc[LidarIndex.POSITION, :].T
-    pc_xyz = lidar_pc
+    pc_xyz = lidar_pc[LidarIndex.POSITION, :].T
 
     lidar2cam_r = np.linalg.inv(sensor2lidar_rotation)
     lidar2cam_t = sensor2lidar_translation @ lidar2cam_r.T

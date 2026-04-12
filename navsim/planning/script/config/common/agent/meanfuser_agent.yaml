@@ -1,6 +1,12 @@
 _target_: navsim.agents.meanfuser.meanfuser_agent.MeanfuserAgent
 _convert_: 'all'
 
+trajectory_sampling:
+  _target_: nuplan.planning.simulation.trajectory.trajectory_sampling.TrajectorySampling
+  _convert_: 'all'
+  time_horizon: 4
+  interval_length: 0.5
+
 config:
   _target_: navsim.agents.meanfuser.meanfuser_config.MeanfuserConfig
   _convert_: 'all'

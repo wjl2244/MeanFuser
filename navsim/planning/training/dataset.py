@@ -1,13 +1,13 @@
-from typing import Dict, List, Optional, Tuple
-from pathlib import Path
-import logging
-import pickle
 import gzip
+import logging
 import os
-import random
+import pickle
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 import torch
 from tqdm import tqdm
-from navsim.planning.utils.data_argu import camera_feature_improve, camera_feature_rotate
+
 from navsim.common.dataloader import SceneLoader
 from navsim.planning.training.abstract_feature_target_builder import AbstractFeatureBuilder, AbstractTargetBuilder
 
@@ -37,7 +37,6 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         feature_builders: List[AbstractFeatureBuilder],
         target_builders: List[AbstractTargetBuilder],
         log_names: Optional[List[str]] = None,
-        is_training: bool = True,
     ):
         """
         Initializes the dataset module.
@@ -64,8 +63,6 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
             log_names=self.log_names,
         )
         self.tokens = list(self._valid_cache_paths.keys())
-        self.is_training = is_training
-        self.use_beyonddrive = os.environ.get('USE_BEYONDDRIVE', None)
 
     def __len__(self) -> int:
         """
@@ -108,7 +105,8 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
                     found_caches.append(data_dict_path.is_file())
                 if all(found_caches):
                     valid_cache_paths[token_path.name] = token_path
-
+            # # Just for debug
+        
         return valid_cache_paths
 
     def _load_scene_with_token(self, token: str) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
@@ -131,7 +129,6 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
             data_dict_path = token_path / (builder.get_unique_name() + ".gz")
             data_dict = load_feature_target_from_pickle(data_dict_path)
             targets.update(data_dict)
-            targets["token"] = token
 
         return (features, targets)
 
@@ -176,7 +173,7 @@ class Dataset(torch.utils.data.Dataset):
         valid_cache_paths: Dict[str, Path] = {}
 
         if (cache_path is not None) and cache_path.is_dir():
-            for log_path in tqdm(cache_path.iterdir()):
+            for log_path in cache_path.iterdir():
                 for token_path in log_path.iterdir():
                     found_caches: List[bool] = []
                     for builder in feature_builders + target_builders:

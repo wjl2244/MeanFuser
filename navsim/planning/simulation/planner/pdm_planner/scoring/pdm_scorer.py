@@ -1,26 +1,30 @@
-from typing import List, Optional
-from dataclasses import dataclass
 import copy
+from dataclasses import dataclass
+from typing import List, Optional
 
 import numpy as np
 import numpy.typing as npt
-from shapely import Point, creation
-
-from nuplan.common.actor_state.state_representation import StateSE2
+import pandas as pd
+from nuplan.common.actor_state.state_representation import StateSE2, TimePoint
 from nuplan.common.actor_state.tracked_objects_types import AGENT_TYPES
 from nuplan.common.actor_state.vehicle_parameters import VehicleParameters, get_pacifica_parameters
 from nuplan.common.maps.maps_datatypes import SemanticMapLayer
 from nuplan.planning.metrics.utils.collision_utils import CollisionType
 from nuplan.planning.simulation.observation.idm.utils import is_agent_ahead, is_agent_behind
+from nuplan.planning.simulation.observation.observation_type import DetectionsTracks
+from nuplan.planning.simulation.trajectory.interpolated_trajectory import InterpolatedTrajectory
 from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
+from shapely import Point, creation
 
+from navsim.common.dataclasses import PDMResults
+from navsim.planning.metric_caching.metric_cache import MapParameters
 from navsim.planning.simulation.planner.pdm_planner.observation.pdm_observation import PDMObservation
 from navsim.planning.simulation.planner.pdm_planner.observation.pdm_occupancy_map import PDMDrivableMap
 from navsim.planning.simulation.planner.pdm_planner.scoring.pdm_comfort_metrics import ego_is_comfortable
 from navsim.planning.simulation.planner.pdm_planner.scoring.pdm_scorer_utils import get_collision_type
-from navsim.planning.simulation.planner.pdm_planner.utils.pdm_path import PDMPath
 from navsim.planning.simulation.planner.pdm_planner.utils.pdm_array_representation import (
     coords_array_to_polygon_array,
+    ego_states_to_state_array,
     state_array_to_coords_array,
 )
 from navsim.planning.simulation.planner.pdm_planner.utils.pdm_enums import (
@@ -30,6 +34,7 @@ from navsim.planning.simulation.planner.pdm_planner.utils.pdm_enums import (
     StateIndex,
     WeightedMetricIndex,
 )
+from navsim.planning.simulation.planner.pdm_planner.utils.pdm_path import PDMPath
 
 
 @dataclass
@@ -38,23 +43,33 @@ class PDMScorerConfig:
     # weighted metric weights
     progress_weight: float = 5.0
     ttc_weight: float = 5.0
-    comfortable_weight: float = 2.0
-    driving_direction_weight: float = 0.0
+    lane_keeping_weight: float = 2.0
+    history_comfort_weight: float = 2.0
+    two_frame_extended_comfort_weight: float = 2.0
 
     # thresholds
-    driving_direction_horizon: float = 1.0  # [s] (driving direction)
-    driving_direction_compliance_threshold: float = 2.0  # [m] (driving direction)
-    driving_direction_violation_threshold: float = 6.0  # [m] (driving direction)
+    # comfort related config in navsim/planning/simulation/planner/pdm_planner/scoring/pdm_comfort_metrics.py
+    driving_direction_horizon: float = 1.0  # [s] (driving direction) (nuplan)
+    driving_direction_compliance_threshold: float = 2.0  # [m] (driving direction) (nuplan)
+    driving_direction_violation_threshold: float = 6.0  # [m] (driving direction) (nuplan)
+
     stopped_speed_threshold: float = 5e-03  # [m/s] (ttc)
+    future_collision_horizon_window: float = 1.0  # [s] (ttc)
     progress_distance_threshold: float = 5.0  # [m] (progress)
+    lane_keeping_deviation_limit: float = 0.5  # [m] (lane keeping) (hydraMDP++)
+    lane_keeping_horizon_window: float = 2.0  # [s] (lane keeping) (hydraMDP++)
+
+    # human flag
+    human_penalty_filter: Optional[bool] = None
 
     @property
     def weighted_metrics_array(self) -> npt.NDArray[np.float64]:
         weighted_metrics = np.zeros(len(WeightedMetricIndex), dtype=np.float64)
         weighted_metrics[WeightedMetricIndex.PROGRESS] = self.progress_weight
         weighted_metrics[WeightedMetricIndex.TTC] = self.ttc_weight
-        weighted_metrics[WeightedMetricIndex.COMFORTABLE] = self.comfortable_weight
-        weighted_metrics[WeightedMetricIndex.DRIVING_DIRECTION] = self.driving_direction_weight
+        weighted_metrics[WeightedMetricIndex.LANE_KEEPING] = self.lane_keeping_weight
+        weighted_metrics[WeightedMetricIndex.HISTORY_COMFORT] = self.history_comfort_weight
+        weighted_metrics[WeightedMetricIndex.TWO_FRAME_EXTENDED_COMFORT] = self.two_frame_extended_comfort_weight
         return weighted_metrics
 
 
@@ -80,6 +95,7 @@ class PDMScorer:
         self._centerline: Optional[PDMPath] = None
         self._route_lane_ids: Optional[List[str]] = None
         self._drivable_area_map: Optional[PDMDrivableMap] = None
+        self._human_past_trajectory: Optional[InterpolatedTrajectory] = None
 
         self._num_proposals: Optional[int] = None
         self._states: Optional[npt.NDArray[np.float64]] = None
@@ -118,16 +134,24 @@ class PDMScorer:
         centerline: PDMPath,
         route_lane_ids: List[str],
         drivable_area_map: PDMDrivableMap,
-    ) -> npt.NDArray[np.float64]:
+        map_parameters: Optional[MapParameters] = None,
+        simulated_agent_detections_tracks: Optional[List[DetectionsTracks]] = None,
+        human_past_trajectory: Optional[InterpolatedTrajectory] = None,
+    ) -> List[pd.DataFrame]:
         """
+        TODO: Update this docstring
         Scores proposal similar to nuPlan's closed-loop metrics
         :param states: array representation of simulated proposals
         :param observation: PDM's observation class
         :param centerline: path of the centerline
         :param route_lane_ids: list containing on-route lane ids
         :param drivable_area_map: Occupancy map of drivable are polygons
-        :return: array containing score of each proposal
+        :return: A List containing the PDMResult for each proposal
         """
+        if simulated_agent_detections_tracks is not None:
+            observation.update_detections_tracks(
+                detection_tracks=simulated_agent_detections_tracks,
+            )
 
         # initialize & lazy load class values
         self._reset(
@@ -136,6 +160,7 @@ class PDMScorer:
             centerline,
             route_lane_ids,
             drivable_area_map,
+            human_past_trajectory,
         )
 
         # fill value ego-area array (used in multiple metrics)
@@ -144,49 +169,84 @@ class PDMScorer:
         # 1. multiplicative metrics
         self._calculate_no_at_fault_collision()
         self._calculate_drivable_area_compliance()
+        self._calculate_traffic_light_compliance()
         self._calculate_driving_direction_compliance()
 
         # 2. weighted metrics
         self._calculate_progress()
         self._calculate_ttc()
-        self._calculate_is_comfortable()
+        self._calculate_lane_keeping()
+        self._calculate_history_comfort()
 
-        return self._aggregate_scores()
+        pdm_scores = self._aggregate_pdm_scores()
+        multiplicative_metrics_prods, weighted_metrics_all = self._multi_metrics.prod(axis=0), self._weighted_metrics
 
-    def _aggregate_scores(self) -> npt.NDArray[np.float64]:
+        results: List[pd.DataFrame] = []
+        for proposal_idx in range(self._num_proposals):
+
+            no_at_fault_collisions = self._multi_metrics[MultiMetricIndex.NO_COLLISION, proposal_idx]
+            drivable_area_compliance = self._multi_metrics[MultiMetricIndex.DRIVABLE_AREA, proposal_idx]
+            driving_direction_compliance = self._multi_metrics[MultiMetricIndex.DRIVING_DIRECTION, proposal_idx]
+            traffic_light_compliance = self._multi_metrics[MultiMetricIndex.TRAFFIC_LIGHT_COMPLIANCE, proposal_idx]
+
+            ego_progress = self._weighted_metrics[WeightedMetricIndex.PROGRESS, proposal_idx]
+            time_to_collision_within_bound = self._weighted_metrics[WeightedMetricIndex.TTC, proposal_idx]
+            lane_keeping = self._weighted_metrics[WeightedMetricIndex.LANE_KEEPING, proposal_idx]
+            history_comfort = self._weighted_metrics[WeightedMetricIndex.HISTORY_COMFORT, proposal_idx]
+
+            multiplicative_metrics_prod = multiplicative_metrics_prods[proposal_idx]
+            weighted_metrics = weighted_metrics_all[:, proposal_idx]
+            pdm_score = pdm_scores[proposal_idx]
+
+            results.append(
+                pd.DataFrame(
+                    [
+                        PDMResults(
+                            no_at_fault_collisions=no_at_fault_collisions,
+                            drivable_area_compliance=drivable_area_compliance,
+                            driving_direction_compliance=driving_direction_compliance,
+                            traffic_light_compliance=traffic_light_compliance,
+                            ego_progress=ego_progress,
+                            time_to_collision_within_bound=time_to_collision_within_bound,
+                            lane_keeping=lane_keeping,
+                            history_comfort=history_comfort,
+                            multiplicative_metrics_prod=multiplicative_metrics_prod,
+                            weighted_metrics=weighted_metrics,
+                            weighted_metrics_array=self._config.weighted_metrics_array,
+                            pdm_score=pdm_score,
+                        )
+                    ]
+                )
+            )
+        return results
+
+    def _aggregate_pdm_scores(self) -> npt.NDArray[np.float64]:
         """
-        Aggregates metrics with multiplicative and weighted average.
-        :return: array containing score of each proposal
+        Score for PDM proposals, ignoring two-frame extended comfort.
         """
 
         # accumulate multiplicative metrics
         multiplicate_metric_scores = self._multi_metrics.prod(axis=0)
 
         # normalize and fill progress values
-        raw_progress = self._progress_raw * multiplicate_metric_scores
-        if raw_progress.shape[0] > 2:
-            pdm_prpgress = np.ones((len(raw_progress), 1)) * raw_progress[:1, None]
-            max_raw_progress = np.concatenate((pdm_prpgress, raw_progress[:,None]), axis=1).max(axis=-1)
-            normalized_progress = np.ones(len(raw_progress), dtype=np.float64)
-            mask = max_raw_progress > self._config.progress_distance_threshold
-            normalized_progress[mask] = (raw_progress[mask] / (max_raw_progress[mask]))
-            normalized_progress[~mask][multiplicate_metric_scores[~mask] == 0.0] = 0.0
+        masked_progress = self._progress_raw * multiplicate_metric_scores
+        norm_constant_progress = np.max(masked_progress)
+        if norm_constant_progress > self._config.progress_distance_threshold:
+            normalized_progress = np.clip(self._progress_raw / norm_constant_progress, 0.0, 1.0)
         else:
-            max_raw_progress = np.max(raw_progress)
-            if max_raw_progress > self._config.progress_distance_threshold:
-                normalized_progress = raw_progress / max_raw_progress
-            else:
-                normalized_progress = np.ones(len(raw_progress), dtype=np.float64)
-                normalized_progress[multiplicate_metric_scores == 0.0] = 0.0
+            normalized_progress = np.ones(len(masked_progress), dtype=np.float64)
         self._weighted_metrics[WeightedMetricIndex.PROGRESS] = normalized_progress
 
-        # accumulate weighted metrics
+        # Exclude the two-frame extended comfort metric from the weighted metrics calculation.
+        mask = np.ones_like(self._config.weighted_metrics_array, dtype=bool)
+        mask[WeightedMetricIndex.TWO_FRAME_EXTENDED_COMFORT] = False
+
         weighted_metrics_array = self._config.weighted_metrics_array
-        weighted_metric_scores = (self._weighted_metrics * weighted_metrics_array[..., None]).sum(axis=0)
-        weighted_metric_scores /= weighted_metrics_array.sum()
+        weighted_metric_scores = (self._weighted_metrics[mask] * weighted_metrics_array[mask, None]).sum(axis=0)
+        weighted_metric_scores /= weighted_metrics_array[mask].sum()
 
         # calculate final scores
-        final_scores = self._multi_metrics.prod(axis=0) * weighted_metric_scores
+        final_scores = multiplicate_metric_scores * weighted_metric_scores
 
         return final_scores
 
@@ -197,6 +257,7 @@ class PDMScorer:
         centerline: PDMPath,
         route_lane_ids: List[str],
         drivable_area_map: PDMDrivableMap,
+        human_past_trajectory: Optional[InterpolatedTrajectory],
     ) -> None:
         """
         Resets metric values and lazy loads input classes.
@@ -214,6 +275,7 @@ class PDMScorer:
         self._centerline = centerline
         self._route_lane_ids = route_lane_ids
         self._drivable_area_map = drivable_area_map
+        self._human_past_trajectory = human_past_trajectory
 
         self._num_proposals = states.shape[0]
 
@@ -302,7 +364,7 @@ class PDMScorer:
         """
         Re-implementation of nuPlan's at-fault collision metric.
         """
-        no_collision_scores = np.ones(self._num_proposals, dtype=np.float64)
+        no_at_fault_collision_scores = np.ones(self._num_proposals, dtype=np.float64)
 
         proposal_collided_track_ids = {
             proposal_idx: copy.deepcopy(self._observation.collided_track_ids)
@@ -346,15 +408,16 @@ class PDMScorer:
                     ego_in_multiple_lanes_or_nondrivable_area and collision_at_lateral
                 ):
                     no_at_fault_collision_score = 0.0 if tracked_object.tracked_object_type in AGENT_TYPES else 0.5
-                    no_collision_scores[proposal_idx] = np.minimum(
-                        no_collision_scores[proposal_idx], no_at_fault_collision_score
+                    no_at_fault_collision_scores[proposal_idx] = np.minimum(
+                        no_at_fault_collision_scores[proposal_idx],
+                        no_at_fault_collision_score,
                     )
                     self._collision_time_idcs[proposal_idx] = min(time_idx, self._collision_time_idcs[proposal_idx])
 
                 else:  # 2. no at fault collision
                     proposal_collided_track_ids[proposal_idx].append(token)
 
-        self._multi_metrics[MultiMetricIndex.NO_COLLISION] = no_collision_scores
+        self._multi_metrics[MultiMetricIndex.NO_COLLISION] = no_at_fault_collision_scores
 
     def _calculate_drivable_area_compliance(self) -> None:
         """
@@ -376,9 +439,16 @@ class PDMScorer:
         )
         oncoming_progress[:, 1:] = np.linalg.norm(center_coordinates[:, 1:] - center_coordinates[:, :-1], axis=-1)
 
-        # mask out progress along the driving direction
+        # mask out points that are not in oncoming traffic
         oncoming_traffic_masks = self._ego_areas[:, :, EgoAreaIndex.ONCOMING_TRAFFIC]
-        oncoming_progress[~oncoming_traffic_masks] = 0.0
+
+        # remove intersection
+        for proposal_idx in range(self._num_proposals):
+            for time_idx in range(self.proposal_sampling.num_poses + 1):
+                ego_position = Point(*center_coordinates[proposal_idx, time_idx])
+                is_in_intersection = self._drivable_area_map.is_in_layer(ego_position, SemanticMapLayer.INTERSECTION)
+                if not oncoming_traffic_masks[proposal_idx, time_idx] or is_in_intersection:
+                    oncoming_progress[proposal_idx, time_idx] = 0.0
 
         # aggregate
         driving_direction_compliance_scores = np.ones(self._num_proposals, dtype=np.float64)
@@ -401,7 +471,7 @@ class PDMScorer:
             else:
                 driving_direction_compliance_scores[proposal_idx] = 0.0
 
-        self._weighted_metrics[WeightedMetricIndex.DRIVING_DIRECTION] = driving_direction_compliance_scores
+        self._multi_metrics[MultiMetricIndex.DRIVING_DIRECTION] = driving_direction_compliance_scores
 
     def _calculate_progress(self) -> None:
         """
@@ -430,11 +500,11 @@ class PDMScorer:
             for proposal_idx in range(self._num_proposals)
         }
 
-        # calculate TTC for 1s in the future with less temporal resolution.
-        future_time_idcs = np.arange(0, 10, 3)
+        # calculate TTC for specific time horizon (default:1s) in the future with less temporal resolution.
+        future_time_idcs = np.arange(0, int(self._config.future_collision_horizon_window * 10), 3)
         n_future_steps = len(future_time_idcs)
 
-        # create polygons for each ego position and 1s future projection
+        # create polygons for each ego position and specific time horizon (default:1s) future projection
         coords_exterior = self._ego_coords.copy()
         coords_exterior[:, :, BBCoordsIndex.CENTER, :] = coords_exterior[:, :, BBCoordsIndex.FRONT_LEFT, :]
         coords_exterior_time_steps = np.repeat(coords_exterior[:, :, None], n_future_steps, axis=2)
@@ -460,8 +530,12 @@ class PDMScorer:
 
         polygons = creation.polygons(coords_exterior_time_steps)
 
+        # ttc needs to look future_time_idcs into the future,
+        # so we can only calculate it for n_proposal_steps_to_evaluate steps
+
+        n_proposal_steps_to_evaluate = self.proposal_sampling.num_poses - max(future_time_idcs)
         # check collision for each proposal and projection
-        for time_idx in range(self.proposal_sampling.num_poses + 1):
+        for time_idx in range(n_proposal_steps_to_evaluate + 1):
             for step_idx, future_time_idx in enumerate(future_time_idcs):
                 current_time_idx = time_idx + future_time_idx
                 polygons_at_time_step = polygons[:, time_idx, step_idx]
@@ -505,13 +579,122 @@ class PDMScorer:
 
         self._weighted_metrics[WeightedMetricIndex.TTC] = ttc_scores
 
-    def _calculate_is_comfortable(self) -> None:
+    def _calculate_traffic_light_compliance(self) -> None:
         """
-        Re-implementation of nuPlan's comfortability metric.
+        Re-implementation of hydraMDP++'s traffic light compliance metric.
         """
-        time_point_s: npt.NDArray[np.float64] = (
-            np.arange(0, self.proposal_sampling.num_poses + 1).astype(np.float64)
-            * self.proposal_sampling.interval_length
-        )
-        is_comfortable = ego_is_comfortable(self._states, time_point_s)
-        self._weighted_metrics[WeightedMetricIndex.COMFORTABLE] = np.all(is_comfortable, axis=-1)
+        # Initialize scores for all proposals to 1 (compliant by default)
+        traffic_light_compliance_scores = np.ones(self._num_proposals, dtype=np.float64)
+
+        # Iterate over each time step within the horizon
+        for time_idx in range(self.proposal_sampling.num_poses + 1):
+            # Get ego polygons (vehicle shapes) at the current time step
+            ego_polygons = self._ego_polygons[:, time_idx]
+            # Query objects intersecting with the ego polygons
+            intersecting = self._observation[time_idx].query(ego_polygons, predicate="intersects")
+
+            # If no intersections, skip this time step
+            if len(intersecting) == 0:
+                continue
+
+            # Iterate over each intersecting object
+            for proposal_idx, geometry_idx in zip(intersecting[0], intersecting[1]):
+                # Skip if the score is already 0
+                if traffic_light_compliance_scores[proposal_idx] == 0.0:
+                    continue
+
+                token = self._observation[time_idx].tokens[geometry_idx]
+
+                # Check if the intersecting object is a red light
+                if token.startswith(self._observation.red_light_token):
+                    traffic_light_compliance_scores[proposal_idx] = 0.0
+
+        # Store the scores in the multi-metrics system for later evaluation
+        self._multi_metrics[MultiMetricIndex.TRAFFIC_LIGHT_COMPLIANCE] = traffic_light_compliance_scores
+
+    def _calculate_lane_keeping(self) -> None:
+        """
+        Revised implementation of hydraMDP++'s lane keeping metric.
+        The trajectory is considered failing lane-keeping only if it deviates beyond
+        the lateral threshold continuously for at least certain seconds.
+
+        """
+        # Initialize lane-keeping scores to 1.0
+        lane_keeping_scores = np.ones(self._num_proposals, dtype=np.float64)
+        lateral_deviation_limit = self._config.lane_keeping_deviation_limit
+
+        interval_length = self.proposal_sampling.interval_length
+        continuous_steps_required = int(np.ceil(self._config.lane_keeping_horizon_window / interval_length))
+
+        centerline = self._centerline.linestring
+
+        for proposal_idx in range(self._num_proposals):
+            consecutive_exceeds = 0
+            for time_idx in range(self.proposal_sampling.num_poses + 1):
+                ego_position = Point(*self._ego_coords[proposal_idx, time_idx, BBCoordsIndex.CENTER])
+
+                is_in_intersection = self._drivable_area_map.is_in_layer(
+                    ego_position, layer=SemanticMapLayer.INTERSECTION
+                )
+
+                if is_in_intersection:
+                    continue
+
+                lateral_deviation = ego_position.distance(centerline)
+
+                if lateral_deviation > lateral_deviation_limit:
+                    consecutive_exceeds += 1
+                else:
+                    consecutive_exceeds = 0
+
+                if consecutive_exceeds >= continuous_steps_required:
+                    lane_keeping_scores[proposal_idx] = 0.0
+                    break
+
+        self._weighted_metrics[WeightedMetricIndex.LANE_KEEPING] = lane_keeping_scores
+
+    def _calculate_history_comfort(self) -> None:
+        """
+        Implementation of comfort metric, padded with past history states.
+        """
+
+        is_history_comfortable = np.ones(self._num_proposals, dtype=np.float64)
+
+        if self._human_past_trajectory is not None:
+
+            # interpolate human past trajectory
+            history_start_time_us = self._human_past_trajectory.start_time.time_us
+            history_end_time_us = self._human_past_trajectory.end_time.time_us
+            time_interval_us = int(0.1 * 1e6)
+
+            history_time_us = np.arange(
+                history_start_time_us,
+                history_end_time_us,
+                time_interval_us,
+                dtype=np.int64,
+            )
+            history_time_us = np.clip(history_time_us, history_start_time_us, history_end_time_us)
+
+            history_timepoints = [TimePoint(time_us) for time_us in history_time_us[:-1]]
+
+            history_state_array = ego_states_to_state_array(
+                self._human_past_trajectory.get_state_at_times(history_timepoints)
+            )
+
+            # Create state array padded with past human states
+            num_padded_poses = len(history_state_array) + self._states.shape[1]
+            padded_states_array = np.zeros(
+                (self._num_proposals, num_padded_poses, StateIndex.size()),
+                dtype=np.float64,
+            )
+
+            padded_states_array[:, : len(history_state_array)] = history_state_array
+            padded_states_array[:, len(history_state_array) :] = self._states
+
+            # create new timepoints with padding and compute comfort scores
+            time_point_s: npt.NDArray[np.float64] = (
+                np.arange(0, num_padded_poses).astype(np.float64) * self.proposal_sampling.interval_length
+            )
+            is_history_comfortable = ego_is_comfortable(padded_states_array, time_point_s).all(axis=-1)
+
+        self._weighted_metrics[WeightedMetricIndex.HISTORY_COMFORT] = is_history_comfortable

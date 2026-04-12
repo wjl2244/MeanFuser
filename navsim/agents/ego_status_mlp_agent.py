@@ -1,13 +1,12 @@
-from typing import Any, List, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
+from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
-from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
-
 from navsim.agents.abstract_agent import AbstractAgent
-from navsim.common.dataclasses import AgentInput, SensorConfig, Scene
+from navsim.common.dataclasses import AgentInput, Scene, SensorConfig
 from navsim.planning.training.abstract_feature_target_builder import AbstractFeatureBuilder, AbstractTargetBuilder
 
 
@@ -58,31 +57,31 @@ class EgoStatusMLPAgent(AbstractAgent):
 
     def __init__(
         self,
-        trajectory_sampling: TrajectorySampling,
         hidden_layer_dim: int,
         lr: float,
         checkpoint_path: Optional[str] = None,
+        trajectory_sampling: TrajectorySampling = TrajectorySampling(time_horizon=4, interval_length=0.5),
     ):
         """
         Initializes the agent interface for EgoStatusMLP.
-        :param trajectory_sampling: trajectory sampling specification.
         :param hidden_layer_dim: dimensionality of hidden layer.
         :param lr: learning rate during training.
         :param checkpoint_path: optional checkpoint path as string, defaults to None
+        :param trajectory_sampling: trajectory sampling specification.
         """
-        super().__init__()
-        self._trajectory_sampling = trajectory_sampling
+        super().__init__(trajectory_sampling)
+
         self._checkpoint_path = checkpoint_path
 
         self._lr = lr
 
         self._mlp = torch.nn.Sequential(
             torch.nn.Linear(8, hidden_layer_dim),
-            torch.nn.ELU(),
+            torch.nn.ReLU(),
             torch.nn.Linear(hidden_layer_dim, hidden_layer_dim),
-            torch.nn.ELU(),
+            torch.nn.ReLU(),
             torch.nn.Linear(hidden_layer_dim, hidden_layer_dim),
-            torch.nn.ELU(),
+            torch.nn.ReLU(),
             torch.nn.Linear(hidden_layer_dim, self._trajectory_sampling.num_poses * 3),
         )
 
@@ -114,15 +113,20 @@ class EgoStatusMLPAgent(AbstractAgent):
 
     def forward(self, features: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Inherited, see superclass."""
-        poses: torch.Tensor = self._mlp(features["ego_status"])
+        poses: torch.Tensor = self._mlp(features["ego_status"].to(torch.float32))
         return {"trajectory": poses.reshape(-1, self._trajectory_sampling.num_poses, 3)}
 
     def compute_loss(
-        self, features: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor], predictions: Dict[str, torch.Tensor]
+        self,
+        features: Dict[str, torch.Tensor],
+        targets: Dict[str, torch.Tensor],
+        predictions: Dict[str, torch.Tensor],
     ) -> torch.Tensor:
         """Inherited, see superclass."""
         return torch.nn.functional.l1_loss(predictions["trajectory"], targets["trajectory"])
 
-    def get_optimizers(self) -> Union[Optimizer, Dict[str, Union[Optimizer, LRScheduler]]]:
+    def get_optimizers(
+        self,
+    ) -> Union[Optimizer, Dict[str, Union[Optimizer, LRScheduler]]]:
         """Inherited, see superclass."""
         return torch.optim.Adam(self._mlp.parameters(), lr=self._lr)

@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 import numpy as np
-
+import pandas as pd
 from nuplan.common.actor_state.ego_state import EgoState
 from nuplan.common.maps.abstract_map_objects import LaneGraphEdgeMapObject
 from nuplan.planning.simulation.planner.abstract_planner import PlannerInput
@@ -138,13 +138,14 @@ class AbstractPDMClosedPlanner(AbstractPDMPlanner):
         simulated_proposals_array = self._simulator.simulate_proposals(proposals_array, ego_state)
 
         # 5. Score proposals
-        proposal_scores = self._scorer.score_proposals(
+        pdm_results = self._scorer.score_proposals(
             simulated_proposals_array,
             self._observation,
             self._centerline,
             list(self._route_lane_dict.keys()),
             self._drivable_area_map,
         )
+        proposal_scores = np.array(pd.concat(pdm_results)["pdm_score"])
 
         trajectory = self._generator.generate_trajectory(np.argmax(proposal_scores))
         return trajectory

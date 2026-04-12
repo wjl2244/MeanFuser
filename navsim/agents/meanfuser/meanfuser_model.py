@@ -166,7 +166,7 @@ class MeanFlowHead(nn.Module):
         return meanflow_loss
     
     @torch.no_grad()
-    def sample(self, encoder_output, gt_trajectorys=None):
+    def sample(self, encoder_output):
         result = {}
 
         bev_query = encoder_output['bev_query']
@@ -259,7 +259,7 @@ class MeanfuserModel(nn.Module):
 
         self.use_beyonddrive = os.environ.get('USE_BEYONDDRIVE', None)
 
-    def encoder(self, features, targets):
+    def encoder(self, features):
         camera_feature: torch.Tensor = features["camera_feature"]
         status_feature: torch.Tensor = features["status_feature"]
 
@@ -335,15 +335,15 @@ class MeanfuserModel(nn.Module):
 
         return results
 
-    def forward(self, features, targets) -> Dict[str, torch.Tensor]:
+    def forward(self, features) -> Dict[str, torch.Tensor]:
         results = {}
         
         # Context Encoder
-        encoder_output = self.encoder(features, targets)
+        encoder_output = self.encoder(features)
         results['encoder_output'] = encoder_output
 
         # Multi-modal Sample
-        trajectorys = self._meanflow_head.sample(encoder_output, targets['trajectory'])
+        trajectorys = self._meanflow_head.sample(encoder_output)
         results.update(trajectorys)
 
         arm_model_output = self._arm_model_head(trajectorys, encoder_output)

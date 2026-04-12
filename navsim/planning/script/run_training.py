@@ -1,30 +1,24 @@
-from typing import Tuple
-from pathlib import Path
 import logging
-import random
-import datetime
-import numpy as np
+from pathlib import Path
+from typing import Tuple
+
 import hydra
+import pytorch_lightning as pl
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
-import pytorch_lightning as pl
-# import wandb
-# from pytorch_lightning.loggers.wandb import WandbLogger
-# import swanlab as wandb
-# from swanlab.integration.pytorch_lightning import SwanLabLogger as WandbLogger
-from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.strategies import DDPStrategy
+
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.common.dataclasses import SceneFilter
 from navsim.common.dataloader import SceneLoader
-from navsim.planning.training.dataset import CacheOnlyDataset, Dataset
 from navsim.planning.training.agent_lightning_module import AgentLightningModule
+from navsim.planning.training.dataset import CacheOnlyDataset, Dataset
 
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "config/training"
 CONFIG_NAME = "default_training"
+
 
 def build_datasets(cfg: DictConfig, agent: AbstractAgent) -> Tuple[Dataset, Dataset]:
     """
@@ -91,8 +85,8 @@ def main(cfg: DictConfig) -> None:
     """
 
     pl.seed_everything(cfg.seed, workers=True)
-    
     logger.info(f"Global Seed set to {cfg.seed}")
+
     logger.info(f"Path where all results are stored: {cfg.output_dir}")
 
     logger.info("Building Agent")
@@ -118,14 +112,12 @@ def main(cfg: DictConfig) -> None:
             feature_builders=agent.get_feature_builders(),
             target_builders=agent.get_target_builders(),
             log_names=cfg.train_logs,
-            is_training=True,
         )
         val_data = CacheOnlyDataset(
             cache_path=cfg.cache_path,
             feature_builders=agent.get_feature_builders(),
             target_builders=agent.get_target_builders(),
             log_names=cfg.test_logs,
-            is_training=False,
         )
     else:
         logger.info("Building SceneLoader")
@@ -133,31 +125,13 @@ def main(cfg: DictConfig) -> None:
 
     logger.info("Building Datasets")
     train_dataloader = DataLoader(train_data, **cfg.dataloader.params, shuffle=True)
-    val_dataloader = DataLoader(val_data, **cfg.dataloader.params, shuffle=False)
     logger.info("Num training samples: %d", len(train_data))
+    val_dataloader = DataLoader(val_data, **cfg.dataloader.params, shuffle=False)
     logger.info("Num validation samples: %d", len(val_data))
 
-    if 'debug' in cfg.experiment_name:
-        wandb_logger = None
-    else:
-        wandb_logger = TensorBoardLogger(
-            save_dir=f"{cfg.output_dir}/tensorboard_logs/",
-            name=cfg.experiment_uid,
-            default_hp_metric=False,
-        )
-
     logger.info("Building Trainer")
-    if cfg.trainer.params.get('strategy') is not None:
-        cfg.trainer.params.__delattr__('strategy')
-    trainer = pl.Trainer(**cfg.trainer.params,
-                            callbacks=agent.get_training_callbacks(),
-                            logger=wandb_logger,
-                            strategy=DDPStrategy(
-                                static_graph=False, 
-                                timeout=datetime.timedelta(seconds=3600),
-                                find_unused_parameters=True,)
-                    )
-    
+    trainer = pl.Trainer(**cfg.trainer.params, callbacks=agent.get_training_callbacks())
+
     logger.info("Starting Training")
     trainer.fit(
         model=lightning_module,

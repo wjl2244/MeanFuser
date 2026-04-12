@@ -1,15 +1,25 @@
+# TODO: Move & rename this file for common usage (not specific for PDM)
 from typing import List
 
 import numpy as np
 import numpy.typing as npt
 import shapely
-
 from nuplan.common.actor_state.ego_state import EgoState
 from nuplan.common.actor_state.state_representation import StateSE2, StateVector2D, TimePoint
 from nuplan.common.actor_state.vehicle_parameters import VehicleParameters
 
-from navsim.planning.simulation.planner.pdm_planner.utils.pdm_enums import BBCoordsIndex, SE2Index, StateIndex
-from navsim.planning.simulation.planner.pdm_planner.utils.pdm_geometry_utils import translate_lon_and_lat
+from navsim.planning.simulation.planner.pdm_planner.utils.pdm_enums import (
+    BBCoordsIndex,
+    PointIndex,
+    SE2Index,
+    StateIndex,
+)
+from navsim.planning.simulation.planner.pdm_planner.utils.pdm_geometry_utils import (
+    get_acceleration_shifted,
+    get_velocity_shifted,
+    se2_array_translate_longitudinally,
+    translate_lon_and_lat,
+)
 
 
 def array_to_state_se2(array: npt.NDArray[np.float64]) -> StateSE2:
@@ -64,7 +74,7 @@ def ego_state_to_state_array(ego_state: EgoState) -> npt.NDArray[np.float64]:
     """
     Converts an ego state into an array representation (drops time-stamps and vehicle parameters)
     :param ego_state: ego state class
-    :return: array containing ego state values
+    :return: array containing ego state values (from the rear axle)
     """
     state_array = np.zeros(StateIndex.size(), dtype=np.float64)
 
@@ -81,14 +91,50 @@ def ego_state_to_state_array(ego_state: EgoState) -> npt.NDArray[np.float64]:
     return state_array
 
 
+def ego_state_to_center_state_array(ego_state: EgoState) -> npt.NDArray[np.float64]:
+    """
+    Converts an ego state into an array representation (drops time-stamps and vehicle parameters)
+    :param ego_state: ego state class
+    :return: array containing ego state values (from the center)
+    """
+    state_array = np.zeros(StateIndex.size(), dtype=np.float64)
+
+    state_array[StateIndex.STATE_SE2] = ego_state.center.serialize()
+    state_array[StateIndex.VELOCITY_2D] = ego_state.dynamic_car_state.center_velocity_2d.array
+    state_array[StateIndex.ACCELERATION_2D] = ego_state.dynamic_car_state.center_acceleration_2d.array
+
+    state_array[StateIndex.STEERING_ANGLE] = ego_state.tire_steering_angle
+    state_array[StateIndex.STEERING_RATE] = ego_state.dynamic_car_state.tire_steering_rate
+
+    state_array[StateIndex.ANGULAR_VELOCITY] = ego_state.dynamic_car_state.angular_velocity
+    state_array[StateIndex.ANGULAR_ACCELERATION] = ego_state.dynamic_car_state.angular_acceleration
+
+    return state_array
+
+
 def ego_states_to_state_array(ego_states: List[EgoState]) -> npt.NDArray[np.float64]:
     """
     Converts a list of ego states into an array representation (drops time-stamps and vehicle parameters)
     :param ego_state: ego state class
-    :return: array containing ego state values
+    :return: array containing ego state values (from the rear axle)
     """
     state_array = np.array(
         [ego_state_to_state_array(ego_state) for ego_state in ego_states],
+        dtype=np.float64,
+    )
+    return state_array
+
+
+def ego_states_to_center_state_array(
+    ego_states: List[EgoState],
+) -> npt.NDArray[np.float64]:
+    """
+    Converts a list of ego states into an center array representation (drops time-stamps and vehicle parameters)
+    :param ego_state: ego state class
+    :return: array containing ego state values (from the center)
+    """
+    state_array = np.array(
+        [ego_state_to_center_state_array(ego_state) for ego_state in ego_states],
         dtype=np.float64,
     )
     return state_array
@@ -197,3 +243,40 @@ def coords_array_to_polygon_array(
     polygons = shapely.creation.polygons(coords_exterior)
 
     return polygons
+
+
+def state_array_to_center_state_array(
+    state_array: npt.NDArray[np.float64], vehicle_parameters: VehicleParameters
+) -> npt.NDArray[np.float64]:
+    assert state_array.shape[-1] == StateIndex.size()
+
+    center_states = np.zeros(state_array.shape, dtype=np.float64)
+
+    # coordinates
+    center_states[..., StateIndex.STATE_SE2] = se2_array_translate_longitudinally(
+        state_array[..., StateIndex.STATE_SE2], vehicle_parameters.rear_axle_to_center
+    )
+
+    # velocity & acceleration
+    displacement = np.zeros((1, 2), dtype=np.float64)
+    displacement[..., PointIndex.X] = vehicle_parameters.rear_axle_to_center
+
+    center_states[..., StateIndex.VELOCITY_2D] = get_velocity_shifted(
+        displacement,
+        state_array[..., StateIndex.VELOCITY_2D],
+        state_array[..., StateIndex.ANGULAR_VELOCITY],
+    )
+    center_states[..., StateIndex.ACCELERATION_2D] = get_acceleration_shifted(
+        displacement,
+        state_array[..., StateIndex.ACCELERATION_2D],
+        state_array[..., StateIndex.ANGULAR_VELOCITY],
+        state_array[..., StateIndex.ANGULAR_ACCELERATION],
+    )
+
+    # rest is copied
+    center_states[..., StateIndex.STEERING_ANGLE] = state_array[..., StateIndex.STEERING_ANGLE]
+    center_states[..., StateIndex.STEERING_RATE] = state_array[..., StateIndex.STEERING_RATE]
+    center_states[..., StateIndex.ANGULAR_VELOCITY] = state_array[..., StateIndex.ANGULAR_VELOCITY]
+    center_states[..., StateIndex.ANGULAR_ACCELERATION] = state_array[..., StateIndex.ANGULAR_ACCELERATION]
+
+    return center_states

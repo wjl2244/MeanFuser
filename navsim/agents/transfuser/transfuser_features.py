@@ -142,7 +142,8 @@ class TransfuserTargetBuilder(AbstractTargetBuilder):
         """Inherited, see superclass."""
 
         trajectory = torch.tensor(
-            scene.get_future_trajectory(num_trajectory_frames=self._trajectory_sampling.num_poses).poses
+            scene.get_future_trajectory(num_trajectory_frames=self._trajectory_sampling.num_poses).poses,
+            dtype=torch.float32
         )
         frame_idx = scene.scene_metadata.num_history_frames - 1
         annotations = scene.frames[frame_idx].annotations

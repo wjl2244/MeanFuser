@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
-from nuplan.common.maps.abstract_map import SemanticMapLayer
 from nuplan.common.actor_state.tracked_objects_types import TrackedObjectType
+from nuplan.common.maps.abstract_map import SemanticMapLayer
 
 
 LIGHT_GREY: str = "#D3D3D3"
@@ -72,34 +72,34 @@ LIDAR_CONFIG: Dict[str, Any] = {
 
 MAP_LAYER_CONFIG: Dict[SemanticMapLayer, Any] = {
     SemanticMapLayer.LANE: {
-        "fill_color": "#E6E9ED",  # light grey
+        "fill_color": LIGHT_GREY,
         "fill_color_alpha": 1.0,
-        "line_color": "#E6E9ED",
+        "line_color": LIGHT_GREY,
         "line_color_alpha": 0.0,
         "line_width": 1.0,
         "line_style": "-",
         "zorder": 1,
     },
     SemanticMapLayer.WALKWAYS: {
-        "fill_color": "#CCD1D9",  # light grey
+        "fill_color": "#d4d19e",
         "fill_color_alpha": 1.0,
-        "line_color": "#CCD1D9",
+        "line_color": "#d4d19e",
         "line_color_alpha": 0.0,
         "line_width": 1.0,
         "line_style": "-",
         "zorder": 1,
     },
     SemanticMapLayer.CARPARK_AREA: {
-        "fill_color": "#AAB2BD",  # light grey
+        "fill_color": "#b9d3b4",
         "fill_color_alpha": 1.0,
-        "line_color": "#AAB2BD",
+        "line_color": "#b9d3b4",
         "line_color_alpha": 0.0,
         "line_width": 0.0,
         "line_style": "-",
         "zorder": 1,
     },
     SemanticMapLayer.PUDO: {
-        "fill_color": "#AF75A7",  # violet
+        "fill_color": "#AF75A7",
         "fill_color_alpha": 0.3,
         "line_color": "#AF75A7",
         "line_color_alpha": 1.0,
@@ -108,16 +108,16 @@ MAP_LAYER_CONFIG: Dict[SemanticMapLayer, Any] = {
         "zorder": 1,
     },
     SemanticMapLayer.INTERSECTION: {
-        "fill_color": "#E6E9ED",  # light grey
+        "fill_color": "#D3D3D3",
         "fill_color_alpha": 1.0,
-        "line_color": "#E6E9ED",
+        "line_color": "#D3D3D3",
         "line_color_alpha": 1.0,
         "line_width": 1.0,
         "line_style": "-",
         "zorder": 1,
     },
     SemanticMapLayer.STOP_LINE: {
-        "fill_color": "#FF0101",  # red
+        "fill_color": "#FF0101",
         "fill_color_alpha": 0.0,
         "line_color": "#FF0101",
         "line_color_alpha": 0.0,
@@ -126,16 +126,16 @@ MAP_LAYER_CONFIG: Dict[SemanticMapLayer, Any] = {
         "zorder": 1,
     },
     SemanticMapLayer.CROSSWALK: {
-        "fill_color": "#477EC3",  # blue
+        "fill_color": NEW_TAB_10[6],
         "fill_color_alpha": 0.3,
-        "line_color": "#477EC3",
+        "line_color": NEW_TAB_10[6],
         "line_color_alpha": 0.0,
         "line_width": 1.0,
         "line_style": "-",
         "zorder": 1,
     },
     SemanticMapLayer.ROADBLOCK: {
-        "fill_color": "#0000C0",  # dark blue
+        "fill_color": "#0000C0",
         "fill_color_alpha": 0.2,
         "line_color": "#0000C0",
         "line_color_alpha": 1.0,
@@ -144,14 +144,14 @@ MAP_LAYER_CONFIG: Dict[SemanticMapLayer, Any] = {
         "zorder": 1,
     },
     SemanticMapLayer.BASELINE_PATHS: {
-        "line_color": "#666666",  # dark grey
+        "line_color": "#666666",
         "line_color_alpha": 1.0,
         "line_width": 1.0,
         "line_style": "--",
         "zorder": 1,
     },
     SemanticMapLayer.LANE_CONNECTOR: {
-        "line_color": "#CBCBCB",  # light grey
+        "line_color": "#CBCBCB",
         "line_color_alpha": 1.0,
         "line_width": 1.0,
         "line_style": "-",
@@ -236,99 +236,27 @@ AGENT_CONFIG: Dict[SemanticMapLayer, Any] = {
 
 TRAJECTORY_CONFIG: Dict[str, Any] = {
     "human": {
-        "fill_color": NEW_TAB_10[2],
-        "fill_color_alpha": 0.5,
-        "line_color": NEW_TAB_10[2],
+        "fill_color": NEW_TAB_10[4],
+        "fill_color_alpha": 1.0,
+        "line_color": NEW_TAB_10[4],
         "line_color_alpha": 1.0,
-        "line_width": 2.5,
+        "line_width": 2.0,
         "line_style": "-",
         "marker": "o",
-        "marker_size": 2,
+        "marker_size": 5,
         "marker_edge_color": "black",
         "zorder": 3,
     },
     "agent": {
-        "fill_color": ELLIS_5[5],
-        "fill_color_alpha": 0.5,
-        "line_color": ELLIS_5[5],
+        "fill_color": ELLIS_5[0],
+        "fill_color_alpha": 1.0,
+        "line_color": ELLIS_5[0],
         "line_color_alpha": 1.0,
-        "line_width": 2.5,
+        "line_width": 2.0,
         "line_style": "-",
         "marker": "o",
-        "marker_size": 2,
+        "marker_size": 5,
         "marker_edge_color": "black",
         "zorder": 3,
-    },
-    "traj_1": {
-        "fill_color": ELLIS_5[7],
-        "fill_color_alpha": 0.5,
-        "line_color": ELLIS_5[7],
-        "line_color_alpha": 1.0,
-        "line_width": 2.0,
-        "line_style": "-",
-        "marker": "o",
-        "marker_size": 2,
-        "marker_edge_color": "black",
-        "zorder": 4,
-    },
-    "traj_2": {
-        "fill_color": ELLIS_5[3],
-        "fill_color_alpha": 0.5,
-        "line_color": ELLIS_5[3],
-        "line_color_alpha": 1.0,
-        "line_width": 2.0,
-        "line_style": "-",
-        "marker": "o",
-        "marker_size": 2,
-        "marker_edge_color": "black",
-        "zorder": 2,
-    },
-    "traj_3": {
-        "fill_color": NEW_TAB_10[9],
-        "fill_color_alpha": 0.5,
-        "line_color": NEW_TAB_10[9],
-        "line_color_alpha": 1.0,
-        "line_width": 2.0,
-        "line_style": "-",
-        "marker": "o",
-        "marker_size": 2,
-        "marker_edge_color": "black",
-        "zorder": 2,
-    },
-    "traj_4": {
-        "fill_color": NEW_TAB_10[5],
-        "fill_color_alpha": 0.5,
-        "line_color": NEW_TAB_10[5],
-        "line_color_alpha": 1.0,
-        "line_width": 2.0,
-        "line_style": "-",
-        "marker": "o",
-        "marker_size": 2,
-        "marker_edge_color": "black",
-        "zorder": 2,
-    },
-    "traj_5": {
-        "fill_color": NEW_TAB_10[8],
-        "fill_color_alpha": 0.5,
-        "line_color": NEW_TAB_10[8],
-        "line_color_alpha": 1.0,
-        "line_width": 2.0,
-        "line_style": "-",
-        "marker": "o",
-        "marker_size": 2,
-        "marker_edge_color": "black",
-        "zorder": 2,
-    },
-    "traj_6": {
-        "fill_color": ELLIS_5[1],
-        "fill_color_alpha": 0.5,
-        "line_color": ELLIS_5[1],
-        "line_color_alpha": 1.0,
-        "line_width": 2.0,
-        "line_style": "-",
-        "marker": "o",
-        "marker_size": 2,
-        "marker_edge_color": "black",
-        "zorder": 2,
     },
 }

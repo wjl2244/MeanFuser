@@ -4,13 +4,13 @@ import warnings
 from typing import Any, Generator, List, Optional, Set, Tuple, Type, cast
 
 from nuplan.common.actor_state.ego_state import EgoState
-from nuplan.common.actor_state.state_representation import StateVector2D, StateSE2, TimePoint
+from nuplan.common.actor_state.state_representation import StateSE2, TimeDuration, TimePoint
 from nuplan.common.actor_state.vehicle_parameters import VehicleParameters, get_pacifica_parameters
 from nuplan.common.maps.abstract_map import AbstractMap
 from nuplan.common.maps.maps_datatypes import (
-    TrafficLightStatusType,
     TrafficLightStatusData,
     TrafficLightStatuses,
+    TrafficLightStatusType,
     Transform,
 )
 from nuplan.common.maps.nuplan_map.map_factory import get_maps_api
@@ -22,7 +22,9 @@ from nuplan.planning.simulation.trajectory.trajectory_sampling import Trajectory
 from navsim.common.dataclasses import Scene
 from navsim.planning.scenario_builder.navsim_scenario_utils import (
     annotations_to_detection_tracks,
+    ego_status_to_ego_state,
     sample_future_indices,
+    sample_past_indices,
 )
 
 DUMMY_SCENARIO_TYPE = "unknown"
@@ -155,28 +157,33 @@ class NavSimScenario(AbstractScenario):
         """Inherited, see superclass."""
 
         frame_idx = self._initial_frame_idx + iteration
-        assert (
-            0 <= frame_idx < self.get_number_of_iterations()
-        ), f"Iteration {frame_idx} out of bound of {self.get_number_of_iterations()} iterations!"
-        return self._time_points[frame_idx]
+        assert frame_idx >= 0
+        if frame_idx < self.get_number_of_iterations():
+            time_point = self._time_points[frame_idx]
+            return self._time_points[frame_idx]
+        else:
+            last_frame_idx = self.get_number_of_iterations() - 1
+            last_frame_time_point = self._time_points[last_frame_idx]
+            time_point = last_frame_time_point + TimeDuration.from_s((frame_idx - last_frame_idx) * 0.5)
+            return time_point
 
     def get_ego_state_at_iteration(self, iteration: int) -> EgoState:
         """Inherited, see superclass."""
 
         frame_idx = self._initial_frame_idx + iteration
+        if frame_idx >= self.get_number_of_iterations():
+            warnings.warn(
+                f"Iteration {frame_idx} out of bound of {self.get_number_of_iterations()} iterations! Using latest ego state instead"
+            )
+            frame_idx = self.get_number_of_iterations() - 1
         assert (
             0 <= frame_idx < self.get_number_of_iterations()
         ), f"Iteration {frame_idx} out of bound of {self.get_number_of_iterations()} iterations!"
 
-        rear_axle_velocity_2d = StateVector2D(*self._scene.frames[frame_idx].ego_status.ego_velocity)
-        rear_axle_acceleration_2d = StateVector2D(*self._scene.frames[frame_idx].ego_status.ego_acceleration)
-        return EgoState.build_from_rear_axle(
-            StateSE2(*self._scene.frames[frame_idx].ego_status.ego_pose),
-            tire_steering_angle=0.0,
+        return ego_status_to_ego_state(
+            ego_status=self._scene.frames[frame_idx].ego_status,
             vehicle_parameters=self._ego_vehicle_parameters,
             time_point=self.get_time_point(iteration),
-            rear_axle_velocity_2d=rear_axle_velocity_2d,
-            rear_axle_acceleration_2d=rear_axle_acceleration_2d,
         )
 
     def get_tracked_objects_at_iteration(
@@ -185,14 +192,22 @@ class NavSimScenario(AbstractScenario):
         future_trajectory_sampling: Optional[TrajectorySampling] = None,
     ) -> DetectionsTracks:
         """Inherited, see superclass."""
-        frame_idx = self._initial_frame_idx + iteration
-        assert 0 <= frame_idx < self.get_number_of_iterations(), f"Iteration is out of scenario: {frame_idx}!"
+
+        frame_idx = iteration + self._initial_frame_idx
+        assert frame_idx >= 0
 
         if future_trajectory_sampling:
             warnings.warn("NavSimScenario: TrajectorySampling in get_tracked_objects_at_iteration() not supported.")
 
-        ego_state = self.get_ego_state_at_iteration(iteration)
-        return annotations_to_detection_tracks(self._scene.frames[frame_idx].annotations, ego_state)
+        if frame_idx < self.get_number_of_iterations():
+            ego_state = self.get_ego_state_at_iteration(iteration)
+            return annotations_to_detection_tracks(self._scene.frames[frame_idx].annotations, ego_state)
+        elif self._scene.extended_detections_tracks is not None and frame_idx - self.get_number_of_iterations() < len(
+            self._scene.extended_detections_tracks
+        ):
+            return self._scene.extended_detections_tracks[frame_idx - self.get_number_of_iterations()]
+        else:
+            raise AssertionError(f"Iteration is out of scenario: {iteration}!")
 
     def get_tracked_objects_within_time_window_at_iteration(
         self,
@@ -229,8 +244,10 @@ class NavSimScenario(AbstractScenario):
         self, iteration: int, time_horizon: float, num_samples: Optional[int] = None
     ) -> Generator[EgoState, None, None]:
         """Inherited, see superclass."""
-        # FIXME:
-        yield self.get_ego_state_at_iteration(0)
+        _past_sampling = TrajectorySampling(num_poses=3, interval_length=0.5)
+        indices = sample_past_indices(_past_sampling, iteration, time_horizon, num_samples)
+        for idx in indices:
+            yield self.get_ego_state_at_iteration(idx)
 
     def get_ego_future_trajectory(
         self, iteration: int, time_horizon: float, num_samples: Optional[int] = None
@@ -248,8 +265,10 @@ class NavSimScenario(AbstractScenario):
         future_trajectory_sampling: Optional[TrajectorySampling] = None,
     ) -> Generator[DetectionsTracks, None, None]:
         """Inherited, see superclass."""
-        # FIXME: add history stats
-        yield self.get_tracked_objects_at_iteration(0)
+        _past_sampling = TrajectorySampling(num_poses=3, interval_length=0.5)
+        indices = sample_past_indices(_past_sampling, iteration, time_horizon, num_samples)
+        for idx in indices:
+            yield self.get_tracked_objects_at_iteration(idx)
 
     def get_future_tracked_objects(
         self,
@@ -276,12 +295,21 @@ class NavSimScenario(AbstractScenario):
 
     def get_traffic_light_status_at_iteration(self, iteration: int) -> Generator[TrafficLightStatusData, None, None]:
         """Inherited, see superclass."""
-
         frame_idx = iteration + self._initial_frame_idx
-
-        for lane_connector_id, is_red in self._scene.frames[frame_idx].traffic_lights:
-            status = TrafficLightStatusType.RED if is_red else TrafficLightStatusType.GREEN
-            yield TrafficLightStatusData(status, lane_connector_id, self.get_time_point(iteration))
+        assert frame_idx >= 0
+        if frame_idx < self.get_number_of_iterations():
+            for lane_connector_id, is_red in self._scene.frames[frame_idx].traffic_lights:
+                status = TrafficLightStatusType.RED if is_red else TrafficLightStatusType.GREEN
+                yield TrafficLightStatusData(status, lane_connector_id, self.get_time_point(iteration))
+        elif self._scene.extended_traffic_light_data is not None and frame_idx - self.get_number_of_iterations() < len(
+            self._scene.extended_traffic_light_data
+        ):
+            traffic_light_data_at_iteration = self._scene.extended_traffic_light_data[
+                frame_idx - self.get_number_of_iterations()
+            ]
+            yield from traffic_light_data_at_iteration.traffic_lights
+        else:
+            yield from []
 
     def get_past_traffic_light_status_history(
         self, iteration: int, time_horizon: float, num_samples: Optional[int] = None
@@ -294,8 +322,7 @@ class NavSimScenario(AbstractScenario):
         :param num_samples: number of entries in the future, if None it will be deduced from the DB.
         :return: Generator object for traffic light history to the past.
         """
-        # FIXME: add traffic light stats
-        yield from []  # placeholder
+        raise NotImplementedError
 
     def get_future_traffic_light_status_history(
         self, iteration: int, time_horizon: float, num_samples: Optional[int] = None
@@ -308,8 +335,7 @@ class NavSimScenario(AbstractScenario):
         :param num_samples: number of entries in the future, if None it will be deduced from the DB.
         :return: Generator object for traffic light history to the future.
         """
-        # FIXME: add traffic light stats
-        yield from []  # placeholder
+        raise NotImplementedError
 
     def get_scenario_tokens(self) -> List[str]:
         """Return the list of lidarpc tokens from the DB that are contained in the scenario."""

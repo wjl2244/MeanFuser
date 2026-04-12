@@ -14,5 +14,5 @@ python navsim/planning/script/run_dataset_caching.py \
 train_test_split=$TRAIN_TEST_SPLIT \
 agent=transfuser_agent \
 experiment_name=debug \
-cache_path=${NAVSIM_CACHE_ROOT}/traintest_v1_cache \
+cache_path=${NAVSIM_CACHE_ROOT}/traintest_v2_cache \
 output_dir=exp/debug

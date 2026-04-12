@@ -21,11 +21,6 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = "config/training"
 CONFIG_NAME = "default_training"
 
-# import debugpy
-# print('waiting for debugpy attach...')
-# debugpy.listen(1990)
-# debugpy.wait_for_client()
-
 
 def cache_features(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[Optional[Any]]:
     """
@@ -45,8 +40,10 @@ def cache_features(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[
     scene_filter.log_names = log_names
     scene_filter.tokens = tokens
     scene_loader = SceneLoader(
-        sensor_blobs_path=Path(cfg.sensor_blobs_path),
+        synthetic_sensor_path=Path(cfg.synthetic_sensor_path),
+        original_sensor_path=Path(cfg.original_sensor_path),
         data_path=Path(cfg.navsim_log_path),
+        synthetic_scenes_path=Path(cfg.synthetic_scenes_path),
         scene_filter=scene_filter,
         sensor_config=agent.get_sensor_config(),
     )
@@ -76,17 +73,16 @@ def main(cfg: DictConfig) -> None:
 
     logger.info("Building SceneLoader")
     scene_filter: SceneFilter = instantiate(cfg.train_test_split.scene_filter)
-    
     data_path = Path(cfg.navsim_log_path)
-    sensor_blobs_path = Path(cfg.sensor_blobs_path)
-
-    agent: AbstractAgent = instantiate(cfg.agent)
-    
+    synthetic_sensor_path = Path(cfg.synthetic_sensor_path)
+    original_sensor_path = Path(cfg.original_sensor_path)
     scene_loader = SceneLoader(
-        sensor_blobs_path=sensor_blobs_path,
+        synthetic_sensor_path=synthetic_sensor_path,
+        original_sensor_path=original_sensor_path,
         data_path=data_path,
+        synthetic_scenes_path=Path(cfg.synthetic_scenes_path),
         scene_filter=scene_filter,
-        sensor_config=agent.get_sensor_config(),
+        sensor_config=SensorConfig.build_no_sensors(),
     )
     logger.info(f"Extracted {len(scene_loader)} scenarios for training/validation dataset")
 

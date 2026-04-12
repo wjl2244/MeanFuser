@@ -1,16 +1,15 @@
-from typing import Any, Callable, List, Tuple
 import io
+from typing import Any, Callable, List, Tuple
 
-from tqdm import tqdm
-from PIL import Image
 import matplotlib.pyplot as plt
+from PIL import Image
+from tqdm import tqdm
 
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.common.dataclasses import Scene
-from navsim.visualization.config import BEV_PLOT_CONFIG, TRAJECTORY_CONFIG, CAMERAS_PLOT_CONFIG
 from navsim.visualization.bev import add_configured_bev_on_ax, add_trajectory_to_bev_ax
-from navsim.visualization.camera import add_annotations_to_camera_ax, add_lidar_to_camera_ax, add_camera_ax
-from navsim.common.dataclasses import Trajectory
+from navsim.visualization.camera import add_annotations_to_camera_ax, add_camera_ax, add_lidar_to_camera_ax
+from navsim.visualization.config import BEV_PLOT_CONFIG, CAMERAS_PLOT_CONFIG, TRAJECTORY_CONFIG
 
 
 def configure_bev_ax(ax: plt.Axes) -> plt.Axes:
@@ -80,14 +79,14 @@ def plot_bev_with_agent(scene: Scene, agent: AbstractAgent) -> Tuple[plt.Figure,
     :return: figure and ax object of matplotlib
     """
 
-    human_trajectory = Trajectory(scene.get_future_trajectory().poses[:8])
+    human_trajectory = scene.get_future_trajectory()
     agent_trajectory = agent.compute_trajectory(scene.get_agent_input())
-    # agent_trajectory = Trajectory(agent_trajectory["trajectory"][0].numpy())
+
     frame_idx = scene.scene_metadata.num_history_frames - 1
     fig, ax = plt.subplots(1, 1, figsize=BEV_PLOT_CONFIG["figure_size"])
     add_configured_bev_on_ax(ax, scene.map_api, scene.frames[frame_idx])
-    add_trajectory_to_bev_ax(ax, human_trajectory, TRAJECTORY_CONFIG["human"], label="Ground Truth")
-    # add_trajectory_to_bev_ax(ax, agent_trajectory, TRAJECTORY_CONFIG["agent"], label="CAD(ours)")
+    add_trajectory_to_bev_ax(ax, human_trajectory, TRAJECTORY_CONFIG["human"])
+    # add_trajectory_to_bev_ax(ax, agent_trajectory, TRAJECTORY_CONFIG["agent"])
     # configure_bev_ax(ax)
     # configure_ax(ax)
     # ax.legend()
@@ -235,4 +234,42 @@ def frame_plot_to_gif(
     :param duration: frame interval in ms, defaults to 500
     """
     images = frame_plot_to_pil(callable_frame_plot, scene, frame_indices)
+    images[0].save(file_name, save_all=True, append_images=images[1:], duration=duration, loop=0)
+
+
+def concat_scenes_to_gif_with_labels(
+    file_name: str,
+    callable_frame_plot: Callable[[Scene, int], Tuple[plt.Figure, Any]],
+    scenes: List[Scene],
+    frame_indices_list: List[List[int]],
+    scene_labels: List[str],
+    duration: float = 500,
+):
+    images: List[Image.Image] = []
+
+    for scene, frame_indices, label in zip(scenes, frame_indices_list, scene_labels):
+        for frame_idx in tqdm(frame_indices, desc=f"Rendering {label}"):
+            fig, ax = callable_frame_plot(scene, frame_idx)
+
+            # 🔵 Add label to the figure
+            fig.text(
+                0.1,
+                0.95,
+                label,
+                fontsize=12,
+                color="black",
+                weight="bold",
+                ha="left",
+                va="top",
+                bbox=dict(facecolor="white", alpha=0.6),
+            )
+
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png")
+            buf.seek(0)
+            images.append(Image.open(buf).copy())
+
+            buf.close()
+            plt.close(fig)
+
     images[0].save(file_name, save_all=True, append_images=images[1:], duration=duration, loop=0)
