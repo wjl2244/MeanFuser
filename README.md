@@ -30,6 +30,7 @@
 ---
 
 ## 📢 News
+- **`[2026/4/12]`** We released [NAVSIMv2 code](https://github.com/wjl2244/MeanFuser/tree/NAVSIMv2).
 - **`[2026/3/20]`** We released code and [checkpoints](https://arxiv.org/abs/2602.20060).
 - **`[2026/2/25]`** We released our [paper](https://arxiv.org/abs/2602.20060) on arXiv. 
 - **`[2026/2/21]`** 🎉 Accepted to CVPR 2026.
@@ -43,15 +44,13 @@
   - [Download Dataset](#1-download-dataset)
   - [Set Up Configuration](#2-set-up-configuration)
   - [Cache the Dataset](#3-cache-the-dataset)
-- ⚙️ [Training and Evaluation](#%EF%B8%8F-training-and-evaluation)
+- ⚙️ [Evaluation](#%EF%B8%8F-evaluation)
   - [Evaluation](#1-evaluation)
-  - [Training](#2-training)
-  - [Visualization](#3-visualization)
 - ❤️ [Acknowledgements](#%EF%B8%8F-acknowledgements)
 
 ## 📋 TODO List
 - [ ] HUGSIM code release (Apr. 2026).
-- [ ] NAVSIMv2 navtest code release (Apr. 2026).
+- [x] NAVSIMv2 navtest code release (Apr. 2026).
 - [x] Checkpoints release (Mar. 2026).
 - [x] Code release (Mar. 2026).
 - [x] Paper release (Feb. 2026).
@@ -70,7 +69,7 @@
 ### 1. Clone MeanFuser Repo
 
 ```bash
-git clone https://github.com/wjl2244/MeanFuser.git
+git clone -b NAVSIMv2 https://github.com/wjl2244/MeanFuser.git
 cd MeanFuser
 ```
 
@@ -122,8 +121,7 @@ navsim_workspace/
 │    │   ├── test/
 │    │   ├── trainval/
 └── cache/
-     ├── navtest_v1_metric_cache/
-     └── traintest_v1_cache/
+     └── navtest_v2_metric_cache/
 ```
 
 ### 3. Cache the Dataset
@@ -131,14 +129,11 @@ We provide a script to cache the dataset and metrics.
 ```bash
 cd MeanFuser
 
-# Cache the dataset. (navtrain and navtest)
-python scripts/evaluation/run_dataset_cache.sh
-
 # Cache the metric.
-python scripts/evaluation/run_metric_cache.sh
+bash scripts/evaluation/run_metric_cache.sh
 ```
 
-## ⚙️ Training and Evaluation
+## ⚙️ Evaluation
 
 ### 1. Evaluation
 Please download the pre-trained checkpoints from [here](https://drive.google.com/drive/folders/1VGzTzvoJkd65aGLn5bp64r86QLrcPxI3?usp=sharing) and place them in the `navsim_workspace/MeanFuser/exp/` directory.
@@ -146,24 +141,7 @@ Please download the pre-trained checkpoints from [here](https://drive.google.com
 ```bash
 cd MeanFuser
 
-bash scripts/evaluation/run_meanfuser_evaluation.sh
-```
-
-### 2. Training
-Please download the ResNet-34 pretrained weights from [here](https://drive.google.com/file/d/1-6mtwHsrZt4TyH4lfFEJTT8_dnnkejAI/view?usp=drive_link). After downloading, update the corresponding path in the configuration file:`navsim_workspace/MeanFuser/navsim/agents/meanfuser/meanfuser_config.py`
-
-```bash
-cd MeanFuser
-
-bash scripts/training/run_meanfuser_training.sh
-```
-
-### 3. Visualization
-We provide a script to visualize the model's planned trajectory.
-
-```bash
-export NAVSIM_WORKSPACE="xxx/navsim_workspace"
-python MeanFuser/tools/visualization_navtest_scenes.py
+bash scripts/evaluation/run_meanfuser_evaluation_one_stage.sh
 ```
 
 ## ❤️ Acknowledgements
