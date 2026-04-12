@@ -12,8 +12,8 @@ export NAVSIM_CACHE_ROOT="${NAVSIM_WORKSPACE}/cache"
 split=navtest
 traffic_agents=non_reactive
 
-checkpoint_path=/high_perf_store4/evad-tech-vla/wangjunli1/code/MeanFuser_github/exp/meanfuser/reproduction_2/2026.03.08.20.41.12/meanfuser_pdms_89.0.ckpt
-output_dir=exp/meanfuser_checkpoints/meanfuser_pdms_89.0_eval/
+checkpoint_path=exp/meanfuser_checkpoints/meanfuser_pdms_89.0.ckpt
+output_dir=exp/meanfuser_checkpoints/meanfuser_pdms_89.0_eval_NAVSIMv2_${traffic_agents}/
 
 python ${NAVSIM_DEVKIT_ROOT}/navsim/planning/script/run_pdm_score_one_stage.py \
     agent=meanfuser_agent \
