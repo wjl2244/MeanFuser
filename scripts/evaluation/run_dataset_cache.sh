@@ -7,7 +7,7 @@ export OPENSCENE_DATA_ROOT="${NAVSIM_WORKSPACE}/dataset"
 export NUPLAN_MAPS_ROOT="$OPENSCENE_DATA_ROOT/maps"
 export NAVSIM_CACHE_ROOT="${NAVSIM_WORKSPACE}/cache"
 
-
+# Please use LF in linux/mac and CRLF in windows for this script.
 TRAIN_TEST_SPLIT=navtest  # or navtrain
 
 python navsim/planning/script/run_dataset_caching.py \

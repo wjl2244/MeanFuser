@@ -8,6 +8,7 @@ export OPENSCENE_DATA_ROOT="${NAVSIM_WORKSPACE}/dataset"
 export NUPLAN_MAPS_ROOT="$OPENSCENE_DATA_ROOT/maps"
 export NAVSIM_CACHE_ROOT="${NAVSIM_WORKSPACE}/cache"
 
+# Please use LF in linux/mac and CRLF in windows for this script.
 
 experiment_name=experiment_name  # replace with your experiment name
 experiment_uid=$(date +%Y.%m.%d.%H.%M.%S)
