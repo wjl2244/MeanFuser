@@ -119,7 +119,6 @@ class MeanfuserConfig:
     bev_semantic_loss_weight: float = 1.0
     meanflow_loss_weight: float = 7.0
     arm_loss_weight: float = 2.0
-    negative_loss_weight: float = 1.5
 
     # BEV mapping
     bev_semantic_classes = {

@@ -40,7 +40,6 @@ from torch.utils.data import DataLoader
 from navsim.agents.abstract_agent import AbstractAgent
 from navsim.common.dataclasses import PDMResults, SensorConfig
 from navsim.common.dataloader import MetricCacheLoader, SceneFilter, SceneLoader
-from navsim.common.enums import SceneFrameType
 from navsim.evaluate.pdm_score import pdm_score
 from navsim.planning.script.builders.worker_pool_builder import build_worker
 # from navsim.planning.script.run_pdm_score import create_scene_aggregators, calculate_individual_mapping_scores, compute_final_scores

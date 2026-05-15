@@ -164,20 +164,12 @@ class PDMScorer:
 
         # normalize and fill progress values
         raw_progress = self._progress_raw * multiplicate_metric_scores
-        if raw_progress.shape[0] > 2:
-            pdm_prpgress = np.ones((len(raw_progress), 1)) * raw_progress[:1, None]
-            max_raw_progress = np.concatenate((pdm_prpgress, raw_progress[:,None]), axis=1).max(axis=-1)
-            normalized_progress = np.ones(len(raw_progress), dtype=np.float64)
-            mask = max_raw_progress > self._config.progress_distance_threshold
-            normalized_progress[mask] = (raw_progress[mask] / (max_raw_progress[mask]))
-            normalized_progress[~mask][multiplicate_metric_scores[~mask] == 0.0] = 0.0
+        max_raw_progress = np.max(raw_progress)
+        if max_raw_progress > self._config.progress_distance_threshold:
+            normalized_progress = raw_progress / max_raw_progress
         else:
-            max_raw_progress = np.max(raw_progress)
-            if max_raw_progress > self._config.progress_distance_threshold:
-                normalized_progress = raw_progress / max_raw_progress
-            else:
-                normalized_progress = np.ones(len(raw_progress), dtype=np.float64)
-                normalized_progress[multiplicate_metric_scores == 0.0] = 0.0
+            normalized_progress = np.ones(len(raw_progress), dtype=np.float64)
+            normalized_progress[multiplicate_metric_scores == 0.0] = 0.0
         self._weighted_metrics[WeightedMetricIndex.PROGRESS] = normalized_progress
 
         # accumulate weighted metrics

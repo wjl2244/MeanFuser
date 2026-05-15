@@ -8,7 +8,7 @@ import lzma
 import pickle
 import os
 import uuid
-import torch
+
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig
@@ -25,7 +25,7 @@ from navsim.planning.script.builders.worker_pool_builder import build_worker
 from navsim.planning.simulation.planner.pdm_planner.simulation.pdm_simulator import PDMSimulator
 from navsim.planning.simulation.planner.pdm_planner.scoring.pdm_scorer import PDMScorer
 from navsim.planning.metric_caching.metric_cache import MetricCache
-from navsim.common.dataclasses import AgentInput, Trajectory
+
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "config/pdm_scoring"
@@ -76,16 +76,12 @@ def run_pdm_score(args: List[Dict[str, Union[List[str], DictConfig]]]) -> List[D
             with lzma.open(metric_cache_path, "rb") as f:
                 metric_cache: MetricCache = pickle.load(f)
 
-            agent_input = args[0]["test_dataset"]._load_scene_with_token(token)[0]
-            # agent_input = scene_loader.get_agent_input_from_token(token)
+            agent_input = scene_loader.get_agent_input_from_token(token)
             if agent.requires_scene:
                 scene = scene_loader.get_scene_from_token(token)
                 trajectory = agent.compute_trajectory(agent_input, scene)
             else:
                 trajectory = agent.compute_trajectory(agent_input)
-            
-            trajectory = trajectory["trajectory"][0].numpy()
-            trajectory = Trajectory(trajectory)
 
             pdm_result = pdm_score(
                 metric_cache=metric_cache,
@@ -124,15 +120,6 @@ def main(cfg: DictConfig) -> None:
     )
     metric_cache_loader = MetricCacheLoader(Path(cfg.metric_cache_path))
 
-    from navsim.planning.training.dataset import CacheOnlyDataset
-    agent: AbstractAgent = instantiate(cfg.agent)
-    test_dataset = CacheOnlyDataset(
-            cache_path=cfg.cache_path,
-            feature_builders=agent.get_feature_builders(),
-            target_builders=agent.get_target_builders(),
-            log_names=cfg.test_logs,
-        )
-
     tokens_to_evaluate = list(set(scene_loader.tokens) & set(metric_cache_loader.tokens))
     num_missing_metric_cache_tokens = len(set(scene_loader.tokens) - set(metric_cache_loader.tokens))
     num_unused_metric_cache_tokens = len(set(metric_cache_loader.tokens) - set(scene_loader.tokens))
@@ -146,12 +133,10 @@ def main(cfg: DictConfig) -> None:
             "cfg": cfg,
             "log_file": log_file,
             "tokens": tokens_list,
-            "test_dataset": test_dataset,
         }
         for log_file, tokens_list in scene_loader.get_tokens_list_per_log().items()
     ]
     score_rows: List[Tuple[Dict[str, Any], int, int]] = worker_map(worker, run_pdm_score, data_points)
-    # score_rows = run_pdm_score(data_points[:1])
 
     pdm_score_df = pd.DataFrame(score_rows)
     num_sucessful_scenarios = pdm_score_df["valid"].sum()

@@ -17,13 +17,6 @@ from navsim.planning.simulation.planner.pdm_planner.observation.pdm_occupancy_ma
 
 
 @dataclass
-class MapParameters:
-    map_root: str
-    map_version: str
-    map_name: str
-
-
-@dataclass
 class MetricCache:
     """Dataclass for storing metric computation information."""
 

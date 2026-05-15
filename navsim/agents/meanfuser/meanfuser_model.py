@@ -257,8 +257,6 @@ class MeanfuserModel(nn.Module):
         self._semantic_map_head = SemanticMapHead(config)
         self._arm_model_head = ARMModel(config)
 
-        self.use_beyonddrive = os.environ.get('USE_BEYONDDRIVE', None)
-
     def encoder(self, features, targets):
         camera_feature: torch.Tensor = features["camera_feature"]
         status_feature: torch.Tensor = features["status_feature"]
@@ -313,14 +311,6 @@ class MeanfuserModel(nn.Module):
         meanflow_loss = self._meanflow_head(encoder_output, targets['trajectory'])
         arm_loss = self._arm_model_head.get_arm_loss(predictions, targets)
         bev_semantic_loss, bev_semantic_map = self._semantic_map_head(encoder_output['bev_feature_upscale'], targets)
-
-        if self.use_beyonddrive is not None:
-            negative_index = (targets['negative_trajectory'].sum(-1).sum(-1) > 0)
-            delta_negative_trajectory = diff_traj(targets['negative_trajectory'])
-            negative_loss = ((predictions['diff_trajectory']-delta_negative_trajectory).abs().mean(-1).mean(-1))[negative_index].mean()
-            negative_loss = -negative_loss
-        else:
-            negative_loss = 0.0
 
         loss = self._config.meanflow_loss_weight * meanflow_loss \
                + self._config.arm_loss_weight * arm_loss \

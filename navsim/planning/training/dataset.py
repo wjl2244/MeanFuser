@@ -4,10 +4,10 @@ import logging
 import pickle
 import gzip
 import os
-import random
+
 import torch
 from tqdm import tqdm
-from navsim.planning.utils.data_argu import camera_feature_improve, camera_feature_rotate
+
 from navsim.common.dataloader import SceneLoader
 from navsim.planning.training.abstract_feature_target_builder import AbstractFeatureBuilder, AbstractTargetBuilder
 
@@ -65,7 +65,6 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
         )
         self.tokens = list(self._valid_cache_paths.keys())
         self.is_training = is_training
-        self.use_beyonddrive = os.environ.get('USE_BEYONDDRIVE', None)
 
     def __len__(self) -> int:
         """
@@ -131,7 +130,6 @@ class CacheOnlyDataset(torch.utils.data.Dataset):
             data_dict_path = token_path / (builder.get_unique_name() + ".gz")
             data_dict = load_feature_target_from_pickle(data_dict_path)
             targets.update(data_dict)
-            targets["token"] = token
 
         return (features, targets)
 
