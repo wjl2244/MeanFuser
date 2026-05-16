@@ -49,6 +49,9 @@ class MeanfuserAgent(AbstractAgent):
         self.meanfuser_model = MeanfuserModel(config)
         self.max_epochs = max_epochs
 
+        from navsim.agents.meanfuser.pdm_score import ComputePDMScore
+        self.pdm_score_computer = ComputePDMScore(cache_path='navtest_v1_metric_cache')
+
     def name(self) -> str:
         """Inherited, see superclass."""
         return self.__class__.__name__
@@ -90,6 +93,12 @@ class MeanfuserAgent(AbstractAgent):
             tokens=None
     ):
         loss_dict = self.meanfuser_model.get_meanfuser_loss(predictions, targets)
+
+        if not self.training:
+            if self.pdm_score_computer is not None:
+                pdm_scores = self.pdm_score_computer.get_pdm_scores(predictions["trajectory"], targets["token"])
+                loss_dict.update(pdm_scores)
+        
         return loss_dict
 
     def get_optimizers(self) -> Union[Optimizer, Dict[str, Union[Optimizer, LRScheduler]]]:
@@ -127,12 +136,15 @@ class MeanfuserAgent(AbstractAgent):
 
     def get_training_callbacks(self) -> List[pl.Callback]:
 
-        val_score = "val_loss"
-        filename = "{epoch:02d}-{val_loss:.4f}"
-        mode='min'
+        # val_score = "val_loss"
+        # filename = "{epoch:02d}-{val_loss:.4f}"
+        # mode='min'
+        val_score = "val_score"
+        filename = "{epoch:02d}-{val_score:.4f}"
+        mode='max'
 
         ckpt_callback = ModelCheckpoint(
-            save_top_k=100,
+            save_top_k=10,
             monitor=val_score,
             mode=mode,
             dirpath=f"{self._config.output_dir}/",
