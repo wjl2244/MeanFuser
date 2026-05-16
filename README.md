@@ -129,7 +129,7 @@ We provide a script to cache the dataset and metrics.
 ```bash
 cd MeanFuser
 
-# Cache the metric.
+# Cache the metric.  Navtest and Navhard
 bash scripts/evaluation/run_metric_cache.sh
 ```
 
@@ -142,6 +142,7 @@ Please download the pre-trained checkpoints from [here](https://drive.google.com
 cd MeanFuser
 
 bash scripts/evaluation/run_meanfuser_evaluation_one_stage.sh
+bash scripts/evaluation/run_meanfuser_evaluation_navhard.sh
 ```
 
 ## ❤️ Acknowledgements

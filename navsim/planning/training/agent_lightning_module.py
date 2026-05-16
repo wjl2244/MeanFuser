@@ -1,9 +1,11 @@
 from typing import Dict, Tuple
-
+import torch
 import pytorch_lightning as pl
 from torch import Tensor
 
 from navsim.agents.abstract_agent import AbstractAgent
+from navsim.common.dataclasses import Trajectory
+from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
 
 
 class AgentLightningModule(pl.LightningModule):
@@ -61,3 +63,31 @@ class AgentLightningModule(pl.LightningModule):
     def configure_optimizers(self):
         """Inherited, see superclass."""
         return self.agent.get_optimizers()
+
+    def predict_step(
+            self,
+            batch: Tuple[Dict[str, Tensor], Dict[str, Tensor]],
+            batch_idx: int
+    ):
+        features, targets = batch
+        self.agent.eval()
+        with torch.no_grad():
+            predictions = self.agent.forward(features)
+            pred_trajectorys = predictions["trajectory"]
+
+        tokens = targets['token']
+        result = {}
+
+        if pred_trajectorys[0].shape[0] == 40:
+            interval_length = 0.1
+        else:
+            interval_length = 0.5
+
+        for idx, (pred_trajectory, token) in enumerate(zip(
+                pred_trajectorys.cpu().numpy(),
+                tokens,
+        )):
+            result[token] = {
+                "trajectory": Trajectory(pred_trajectory, TrajectorySampling(time_horizon=4, interval_length=interval_length)),
+                } 
+        return result

@@ -11,8 +11,8 @@ export NUPLAN_MAPS_ROOT="$OPENSCENE_DATA_ROOT/maps"
 export NAVSIM_CACHE_ROOT="${NAVSIM_WORKSPACE}/cache"
 
 
-TRAIN_TEST_SPLIT=navtest
+TRAIN_TEST_SPLIT=navhard_two_stage  # navtest navhard_two_stage
 
 python $NAVSIM_DEVKIT_ROOT/navsim/planning/script/run_metric_caching.py \
 train_test_split=$TRAIN_TEST_SPLIT \
-cache.cache_path=CACHE_PATH=${NAVSIM_CACHE_ROOT}/${TRAIN_TEST_SPLIT}_v2_metric_cache
+metric_cache_path=${NAVSIM_CACHE_ROOT}/${TRAIN_TEST_SPLIT}_v2_metric_cache

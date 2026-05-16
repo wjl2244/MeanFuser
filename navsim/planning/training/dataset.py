@@ -141,6 +141,7 @@ class Dataset(torch.utils.data.Dataset):
         target_builders: List[AbstractTargetBuilder],
         cache_path: Optional[str] = None,
         force_cache_computation: bool = False,
+        is_training: bool = True,
     ):
         super().__init__()
         self._scene_loader = scene_loader
@@ -155,6 +156,8 @@ class Dataset(torch.utils.data.Dataset):
 
         if self._cache_path is not None:
             self.cache_dataset()
+
+        self.is_training = is_training
 
     @staticmethod
     def _load_valid_caches(
@@ -283,7 +286,9 @@ class Dataset(torch.utils.data.Dataset):
             agent_input = scene.get_agent_input()
             for builder in self._feature_builders:
                 features.update(builder.compute_features(agent_input))
-            for builder in self._target_builders:
-                targets.update(builder.compute_targets(scene))
+            if self.is_training:
+                for builder in self._target_builders:
+                    targets.update(builder.compute_targets(scene))
+        targets['token'] = token
 
         return (features, targets)
