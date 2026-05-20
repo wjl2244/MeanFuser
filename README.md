@@ -30,10 +30,11 @@
 ---
 
 ## 📢 News
-- **`[2026/4/12]`** We released [NAVSIMv2 code](https://github.com/wjl2244/MeanFuser/tree/NAVSIMv2).
-- **`[2026/3/20]`** We released code and [checkpoints](https://arxiv.org/abs/2602.20060).
-- **`[2026/2/25]`** We released our [paper](https://arxiv.org/abs/2602.20060) on arXiv. 
-- **`[2026/2/21]`** 🎉 Accepted to CVPR 2026.
+- **`[2026/05/20]`** We released [BeyondDrive](https://github.com/wjl2244/BeyondDrive), a contrastive learning framework for end-to-end AD.
+- **`[2026/04/12]`** We released [NAVSIMv2 code](https://github.com/wjl2244/MeanFuser/tree/NAVSIMv2).
+- **`[2026/03/20]`** We released code and [checkpoints](https://arxiv.org/abs/2602.20060).
+- **`[2026/02/25]`** We released our [paper](https://arxiv.org/abs/2602.20060) on arXiv. 
+- **`[2026/02/21]`** 🎉 Accepted to CVPR 2026.
 
 
 ## 📌 Table of Contents
